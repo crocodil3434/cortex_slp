@@ -14,8 +14,8 @@ export const Footer = () => {
       <div className="container mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-12">
         {/* Brand */}
         <div className="flex flex-col space-y-5">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden border border-white/10 flex-shrink-0 relative">
+          <div className="flex items-center space-x-3 flex-shrink-0">
+            <div className="w-12 h-12 rounded-full overflow-hidden border border-white/10 flex-shrink-0 relative shadow-sm">
               <Image 
                 src="/logo.jpg" 
                 alt="Cortex SLP Logo" 
@@ -23,7 +23,9 @@ export const Footer = () => {
                 className="object-cover" 
               />
             </div>
-            <span className="font-serif text-xl font-bold text-white tracking-tight">CORTEX <span className="text-sage-300">SLP</span></span>
+            <span className="font-serif text-lg md:text-xl font-bold text-white tracking-tight whitespace-nowrap">
+              CORTEX <span className="text-sage-300">SLP</span>
+            </span>
           </div>
           <p className="text-sage-200/70 text-sm max-w-xs leading-relaxed">
             {t.hero.subtitle}
