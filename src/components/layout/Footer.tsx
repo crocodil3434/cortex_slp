@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useLanguage } from "@/context/LanguageContext";
 import { Mail, MapPin, Phone } from "lucide-react";
 
@@ -13,11 +14,16 @@ export const Footer = () => {
       <div className="container mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-12">
         {/* Brand */}
         <div className="flex flex-col space-y-5">
-          <div className="flex items-center space-x-2">
-            <div className="w-9 h-9 bg-gradient-to-br from-sage-300 to-sage-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-sm">C</span>
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-white/10 flex-shrink-0 relative">
+              <Image 
+                src="/logo.jpg" 
+                alt="Cortex SLP Logo" 
+                fill 
+                className="object-cover" 
+              />
             </div>
-            <span className="font-serif text-xl font-bold text-white">CORTEX <span className="text-sage-300">SLP</span></span>
+            <span className="font-serif text-xl font-bold text-white tracking-tight">CORTEX <span className="text-sage-300">SLP</span></span>
           </div>
           <p className="text-sage-200/70 text-sm max-w-xs leading-relaxed">
             {t.hero.subtitle}

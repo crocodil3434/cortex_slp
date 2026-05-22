@@ -26,7 +26,7 @@ export const Hero = () => {
 
   return (
     <section className="relative w-full min-h-[92vh] flex items-center gradient-hero overflow-hidden">
-      <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center z-10 py-20">
+      <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center z-10 pt-10 pb-16 lg:py-20">
         {/* Left: Text Content */}
         <div className="space-y-8">
           <motion.div

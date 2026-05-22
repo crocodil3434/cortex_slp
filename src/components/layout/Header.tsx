@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useLanguage } from "@/context/LanguageContext";
 import { Globe, Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,11 +25,16 @@ export const Header = () => {
       <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md h-20 flex items-center border-b border-sage-100">
         <div className="container mx-auto px-6 h-full flex items-center justify-between">
           {/* Brand */}
-          <Link href="/" className="flex items-center space-x-2">
-            <div className="w-9 h-9 bg-gradient-to-br from-sage-400 to-sage-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-sm">C</span>
+          <Link href="/" className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-sage-100 flex-shrink-0 relative">
+              <Image 
+                src="/logo.jpg" 
+                alt="Cortex SLP Logo" 
+                fill 
+                className="object-cover" 
+              />
             </div>
-            <span className="font-serif text-xl font-bold text-warm-gray-800">CORTEX <span className="text-sage-500">SLP</span></span>
+            <span className="font-serif text-xl font-bold text-warm-gray-800 tracking-tight">CORTEX <span className="text-sage-500">SLP</span></span>
           </Link>
 
           {/* Desktop Navigation */}

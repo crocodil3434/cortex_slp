@@ -9,7 +9,7 @@ export default function ShopPage() {
   const { t } = useLanguage();
 
   return (
-    <div className="min-h-[80vh] gradient-sky flex items-center justify-center px-6 relative overflow-hidden">
+    <div className="min-h-[80vh] gradient-sky flex items-center justify-center py-12 px-4 md:px-6 relative overflow-hidden">
       {/* Decorative blurs */}
       <div className="absolute top-20 left-20 w-72 h-72 bg-sky-200/40 rounded-full blur-3xl"></div>
       <div className="absolute bottom-20 right-20 w-72 h-72 bg-sage-200/30 rounded-full blur-3xl"></div>
@@ -18,7 +18,7 @@ export default function ShopPage() {
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className="bg-white rounded-3xl p-12 md:p-20 border border-sky-100 shadow-[0_8px_30px_rgba(124,207,253,0.1)] text-center space-y-6 max-w-lg relative z-10"
+        className="bg-white rounded-3xl p-8 md:p-16 border border-sky-100 shadow-[0_8px_30px_rgba(124,207,253,0.1)] text-center space-y-6 max-w-lg relative z-10"
       >
         <div className="flex justify-center">
           <div className="bg-sky-100 p-4 rounded-2xl">

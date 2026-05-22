@@ -53,7 +53,7 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="min-h-[90vh] gradient-sky flex items-center justify-center py-24 px-6 relative overflow-hidden">
+    <div className="min-h-[85vh] gradient-sky flex items-center justify-center py-10 md:py-20 px-4 md:px-6 relative overflow-hidden">
       {/* Decorative blurs */}
       <div className="absolute top-20 left-20 w-72 h-72 bg-sage-200/40 rounded-full blur-3xl"></div>
       <div className="absolute bottom-20 right-20 w-72 h-72 bg-sky-200/30 rounded-full blur-3xl"></div>
