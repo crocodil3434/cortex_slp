@@ -42,9 +42,35 @@ export const Footer = () => {
           <Link href="#about" className="text-sage-200/60 hover:text-sage-300 transition-colors duration-300">{t.header.about}</Link>
         </div>
 
-        {/* Contact / Social Media Placeholder */}
+        {/* Contact / Social Media */}
         <div className="flex flex-col space-y-4 text-sm">
-          {/* İleride sosyal medyalar eklenecek */}
+          <h4 className="text-sage-300 font-semibold mb-2">İletişim & Sosyal Medya</h4>
+          
+          <div className="flex flex-col space-y-3">
+            <a href="mailto:furkanyaya@cortexslp.com" className="flex items-center space-x-3 text-sage-200/60 hover:text-sage-300 transition-colors duration-300">
+              <Mail className="w-4 h-4" />
+              <span>furkanyaya@cortexslp.com</span>
+            </a>
+            
+            <a href="tel:+905413296554" className="flex items-center space-x-3 text-sage-200/60 hover:text-sage-300 transition-colors duration-300">
+              <Phone className="w-4 h-4" />
+              <span className="tracking-wider">+90 541 329 65 54</span>
+            </a>
+
+            <div className="flex items-center space-x-3 text-sage-200/60 pt-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
+              <div className="flex space-x-2">
+                <a href="https://instagram.com/croco.ai" target="_blank" rel="noreferrer" className="hover:text-sage-300 transition-colors duration-300">@croco.ai</a>
+                <span className="text-white/20">|</span>
+                <a href="https://instagram.com/dktfurkan" target="_blank" rel="noreferrer" className="hover:text-sage-300 transition-colors duration-300">@dktfurkan</a>
+              </div>
+            </div>
+
+            <a href="https://www.linkedin.com/in/furkanyaya" target="_blank" rel="noreferrer" className="flex items-center space-x-3 text-sage-200/60 hover:text-sage-300 transition-colors duration-300 pt-1">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect width="4" height="12" x="2" y="9"/><circle cx="4" cy="4" r="2"/></svg>
+              <span>linkedin.com/in/furkanyaya</span>
+            </a>
+          </div>
         </div>
       </div>
       

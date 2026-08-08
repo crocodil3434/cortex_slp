@@ -21,8 +21,8 @@ export const tr = {
   },
   services: {
     badge: "Klinik Hizmetlerimiz",
-    title: "Kanıta Dayalı Tedavi Yaklaşımı",
-    desc: "Nörorehabilitasyon, disfaji ve ses terapisi alanlarında uluslararası standartlarda hizmet sunuyoruz.",
+    title: "Kanıta Dayalı Terapi Yaklaşımı",
+    desc: "11 farklı klinik değerlendirme alanında uluslararası standartlarda, yapay zeka destekli hizmet sunuyoruz.",
     moreInfo: "Detaylı Bilgi",
     card1: {
       title: "Medikal Yutma Terapisi & Disfaji",

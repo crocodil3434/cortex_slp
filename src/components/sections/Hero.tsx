@@ -29,15 +29,7 @@ export const Hero = () => {
       <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center z-10 pt-10 pb-16 lg:py-20">
         {/* Left: Text Content */}
         <div className="space-y-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="inline-flex items-center space-x-2 bg-sage-100 text-sage-700 px-4 py-2 rounded-full text-xs font-semibold"
-          >
-            <span className="w-2 h-2 bg-sage-400 rounded-full animate-pulse"></span>
-            <span>{t.hero.badge}</span>
-          </motion.div>
+
 
           <motion.h1 
             initial={{ opacity: 0, y: 20 }}
