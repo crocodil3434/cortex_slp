@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { getClients, searchClients } from "@/lib/crocodil/storage";
+import { getClients } from "@/lib/crocodil/storage";
 import type { Client } from "@/lib/crocodil/types";
-import { Search, Plus, Filter, Users, ChevronRight, Calendar, Clock, AlertCircle } from "lucide-react";
+import { Search, Plus, Filter, Users, ChevronRight, Calendar, Clock, AlertCircle, LayoutGrid, List } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import Link from "next/link";
@@ -110,14 +110,22 @@ export default function DanismanListePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"tümü" | Client["status"]>("tümü");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
   useEffect(() => {
-    setClients(getClients());
+    getClients().then(setClients);
   }, []);
 
-  const filtered = (query ? searchClients(query) : clients).filter(
-    (c) => statusFilter === "tümü" || c.status === statusFilter
-  );
+  const filtered = clients.filter((c) => {
+    const q = query.toLowerCase();
+    const matchSearch = !query ||
+      c.firstName.toLowerCase().includes(q) ||
+      c.lastName.toLowerCase().includes(q) ||
+      c.primaryDiagnosis?.toLowerCase().includes(q) ||
+      c.referralDiagnosis?.toLowerCase().includes(q);
+    const matchStatus = statusFilter === "tümü" || c.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#f8fffe" }}>
@@ -141,8 +149,8 @@ export default function DanismanListePage() {
           </Link>
         </div>
 
-        {/* Arama + Filtre */}
-        <div className="flex gap-2">
+        {/* Arama + Filtre + Görünüm Seçici */}
+        <div className="flex flex-col md:flex-row gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -150,24 +158,45 @@ export default function DanismanListePage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Ad, tanı veya sevk kaynağı ara..."
-              className="w-full pl-9 pr-3 py-2 rounded-xl border text-sm focus:outline-none focus:border-teal-400 transition-colors"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-teal-400 transition-colors"
               style={{ borderColor: "#e5e7eb" }}
             />
           </div>
-          <div className="flex rounded-xl overflow-hidden border" style={{ borderColor: "#e5e7eb" }}>
-            {(["tümü", "aktif", "pasif", "tamamlandı"] as const).map((s) => (
+          <div className="flex flex-wrap gap-2">
+            <div className="flex rounded-xl overflow-hidden border" style={{ borderColor: "#e5e7eb" }}>
+              {(["tümü", "aktif", "pasif", "tamamlandı"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className="px-3 py-2 text-xs font-medium capitalize transition-all"
+                  style={{
+                    background: statusFilter === s ? "#0d9488" : "transparent",
+                    color: statusFilter === s ? "white" : "#6b7280",
+                  }}
+                >
+                  {s === "tümü" ? "Tümü" : STATUS_CONFIG[s].label}
+                </button>
+              ))}
+            </div>
+            
+            {/* Görünüm Geçişi */}
+            <div className="flex rounded-xl overflow-hidden border bg-white" style={{ borderColor: "#e5e7eb" }}>
               <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className="px-3 py-2 text-xs font-medium capitalize transition-all"
-                style={{
-                  background: statusFilter === s ? "#0d9488" : "transparent",
-                  color: statusFilter === s ? "white" : "#6b7280",
-                }}
+                onClick={() => setViewMode("grid")}
+                className={`p-2 transition-colors ${viewMode === "grid" ? "bg-teal-50 text-teal-600" : "text-gray-400 hover:bg-gray-50"}`}
+                title="Kart Görünümü"
               >
-                {s === "tümü" ? "Tümü" : STATUS_CONFIG[s].label}
+                <LayoutGrid className="w-4 h-4" />
               </button>
-            ))}
+              <div className="w-px bg-gray-200" />
+              <button
+                onClick={() => setViewMode("table")}
+                className={`p-2 transition-colors ${viewMode === "table" ? "bg-teal-50 text-teal-600" : "text-gray-400 hover:bg-gray-50"}`}
+                title="Tablo Görünümü"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -197,7 +226,7 @@ export default function DanismanListePage() {
               </Link>
             )}
           </div>
-        ) : (
+        ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {filtered.map((client, i) => (
               <motion.div
@@ -212,6 +241,68 @@ export default function DanismanListePage() {
                 />
               </motion.div>
             ))}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border overflow-hidden shadow-sm" style={{ borderColor: "#f0fdf9" }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase tracking-wider" style={{ borderColor: "#f0fdf9" }}>
+                    <th className="px-5 py-3">Danışan</th>
+                    <th className="px-5 py-3">Yaş/Cinsiyet</th>
+                    <th className="px-5 py-3">Ön Tanı</th>
+                    <th className="px-5 py-3">Kayıt Tarihi</th>
+                    <th className="px-5 py-3">Durum</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y text-sm" style={{ borderColor: "#f9fafb" }}>
+                  {filtered.map((client) => {
+                    const status = STATUS_CONFIG[client.status];
+                    const color = getAvatarColor(client.id);
+                    const age = client.birthDate ? Math.floor((Date.now() - new Date(client.birthDate).getTime()) / 31557600000) : null;
+                    
+                    return (
+                      <tr 
+                        key={client.id} 
+                        onClick={() => router.push(`/crocodil/danisman/${client.id}`)}
+                        className="hover:bg-teal-50/30 cursor-pointer transition-colors"
+                      >
+                        <td className="px-5 py-3 flex items-center gap-3">
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                            style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}
+                          >
+                            {client.avatarInitials ?? "??"}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-800">{client.firstName} {client.lastName}</div>
+                            {client.phone && <div className="text-xs text-gray-400">{client.phone}</div>}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">
+                          {age !== null ? `${age} yaş` : "—"}<br />
+                          <span className="text-xs text-gray-400 capitalize">{client.gender || "—"}</span>
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className="text-gray-700">{client.primaryDiagnosis || "—"}</span>
+                        </td>
+                        <td className="px-5 py-3 text-gray-500">
+                          {client.createdAt ? format(parseISO(client.createdAt), "d MMM yyyy", { locale: tr }) : "—"}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span
+                            className="inline-flex items-center text-xs font-medium px-2 py-1 rounded-full border"
+                            style={{ background: status.bg, color: status.color, borderColor: status.border }}
+                          >
+                            {status.label}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

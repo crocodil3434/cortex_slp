@@ -1,4 +1,4 @@
-import { getSettings, saveClient } from "./storage";
+import { getSettings, saveClient, getClients } from "./storage";
 import type { CalendarEvent, Client } from "./types";
 import { parseISO, addMonths, subMonths } from "date-fns";
 
@@ -20,10 +20,10 @@ export function loadGoogleScript(): Promise<void> {
 }
 
 export async function syncGoogleCalendar(
-  onSuccess: (events: CalendarEvent[]) => void,
+  onSuccess: (events: CalendarEvent[]) => void | Promise<void>,
   onError: (error: string) => void
 ) {
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings?.googleCalendarClientId) {
     onError("Lütfen Ayarlar sayfasından Google Client ID'nizi girin.");
     return;
@@ -44,7 +44,7 @@ export async function syncGoogleCalendar(
         const token = response.access_token;
         try {
           const events = await fetchEvents(token);
-          onSuccess(events);
+          await onSuccess(events);
         } catch (e: any) {
           onError("Etkinlikler alınamadı: " + e.message);
         }
@@ -97,11 +97,7 @@ async function fetchEvents(accessToken: string): Promise<CalendarEvent[]> {
     
     const extractedName = title.split("-")[0].trim();
     if (extractedName && extractedName.length > 2 && extractedName.split(" ").length >= 2) {
-      let clients: Client[] = [];
-      if (typeof window !== "undefined") {
-        const stored = localStorage.getItem("crocodil_clients");
-        if (stored) clients = JSON.parse(stored);
-      }
+      let clients: Client[] = await getClients();
       
       const existing = clients.find(c => {
         const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
@@ -115,7 +111,7 @@ async function fetchEvents(accessToken: string): Promise<CalendarEvent[]> {
         const lastName = names.pop() || "";
         const firstName = names.join(" ");
         
-        const newClient = saveClient({
+        const newClient = await saveClient({
           firstName,
           lastName,
           phone: "",
@@ -130,13 +126,14 @@ async function fetchEvents(accessToken: string): Promise<CalendarEvent[]> {
     }
 
     calendarEvents.push({
-      id: "google_" + item.id,
+      id: "", // uuid olarak boş, Supabase oluşturacak veya upsert edilecek
+      googleEventId: item.id,
       title: title,
       start: start,
       end: end,
       clientId: clientId,
-      type: "google", // Error 2 fixed
-    });
+      type: "google",
+    } as CalendarEvent);
   }
 
   return calendarEvents;

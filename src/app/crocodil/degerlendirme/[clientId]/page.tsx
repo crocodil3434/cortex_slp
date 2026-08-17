@@ -46,13 +46,16 @@ export default function DegerlendirmePage() {
 
   useEffect(() => {
     if (!clientId) return;
-    const c = getClient(clientId);
-    if (!c) { router.push("/crocodil/danisman"); return; }
-    setClient(c);
-    // Devam eden değerlendirme var mı?
-    const existing = getAssessments(clientId).find((a) => a.status === "devam");
-    if (existing) setAssessmentId(existing.id);
-  }, [clientId]);
+    const load = async () => {
+      const c = await getClient(clientId as string);
+      if (!c) { router.push("/crocodil/danisman"); return; }
+      setClient(c);
+      const assessments = await getAssessments(clientId as string);
+      const existing = assessments.find((a) => a.status === "devam");
+      if (existing) setAssessmentId(existing.id);
+    };
+    load();
+  }, [clientId, router]);
 
   const toggleCategory = (key: AssessmentCategory) => {
     // personal ve conclusion her zaman seçili
@@ -65,10 +68,10 @@ export default function DegerlendirmePage() {
     });
   };
 
-  const handleStart = () => {
+  const handleStart = async () => {
     const orderedCategories = CATEGORIES.filter((c) => selected.has(c.key)).map((c) => c.key);
-    const assessment = saveAssessment({
-      clientId,
+    const assessment = await saveAssessment({
+      clientId: clientId as string,
       selectedCategories: orderedCategories,
       status: "devam",
     });

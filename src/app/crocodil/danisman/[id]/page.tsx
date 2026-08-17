@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { getClient, getSessions, getAssessments, getGoals } from "@/lib/crocodil/storage";
-import type { Client, TherapySession, Assessment, SMARTGoal } from "@/lib/crocodil/types";
+import { getClient, getSessions, getAssessments, getGoals, getSettings, getClientFiles, deleteClientFile, getClientFileUrl, type ClientFile } from "@/lib/crocodil/storage";
+import type { Client, TherapySession, Assessment, SMARTGoal, CrocodilSettings } from "@/lib/crocodil/types";
 import { format, parseISO, differenceInYears } from "date-fns";
 import { tr } from "date-fns/locale";
 import { PDFDownloadLink } from "@react-pdf/renderer";
@@ -12,9 +12,13 @@ import { ClinicalReportDocument } from "@/lib/crocodil/report-generator";
 import {
   ArrowLeft, Plus, ClipboardList, Activity, BarChart3,
   Sparkles, Edit, Calendar, Clock, Target, TrendingUp,
-  User, Phone, Stethoscope, Download, FileText
+  User, Phone, Stethoscope, Download, FileText, Trash2
 } from "lucide-react";
 import Link from "next/link";
+import { ClientGoalSummary } from "@/components/crocodil/ClientGoalSummary";
+import { FileUploader, getFileIcon, formatBytes } from "@/components/crocodil/FileUploader";
+import { useToast } from "@/components/crocodil/Toast";
+import { useConfirm } from "@/components/crocodil/ConfirmModal";
 
 const COLOR_PALETTE = ["#0d9488","#3b82f6","#a855f7","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899"];
 function getAvatarColor(id: string) {
@@ -22,7 +26,7 @@ function getAvatarColor(id: string) {
   return COLOR_PALETTE[i % COLOR_PALETTE.length];
 }
 
-type TabKey = "genel" | "timeline" | "raporlar" | "analiz";
+type TabKey = "genel" | "seanslar" | "degerlendirmeler" | "belgeler";
 
 export default function DanismanDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,17 +35,60 @@ export default function DanismanDetailPage() {
   const [sessions, setSessions] = useState<TherapySession[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [goals, setGoals] = useState<SMARTGoal[]>([]);
+  const [settings, setSettings] = useState<CrocodilSettings | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("genel");
+  const [files, setFiles] = useState<ClientFile[]>([]);
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
+
+  const refreshFiles = async () => {
+    if (!id) return;
+    try {
+      setFiles(await getClientFiles(id as string));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
-    const c = getClient(id);
-    if (!c) { router.push("/crocodil/danisman"); return; }
-    setClient(c);
-    setSessions(getSessions(id));
-    setAssessments(getAssessments(id));
-    setGoals(getGoals(id));
-  }, [id]);
+    const fetchData = async () => {
+      try {
+        const c = await getClient(id as string);
+        if (!c) { router.push("/crocodil/danisman"); return; }
+        setClient(c);
+        setSessions(await getSessions(id as string));
+        setAssessments(await getAssessments(id as string));
+        setGoals(await getGoals(id as string));
+        setSettings(await getSettings());
+        setFiles(await getClientFiles(id as string));
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchData();
+  }, [id, router]);
+
+  const handleDeleteFile = async (path: string) => {
+    if (await confirm({ title: "Dosyayı silmek istediğinize emin misiniz?", message: "Bu işlem geri alınamaz.", danger: true })) {
+      try {
+        await deleteClientFile(path);
+        toastSuccess("Dosya silindi");
+        refreshFiles();
+      } catch (err: any) {
+        toastError(err.message || "Dosya silinemedi");
+      }
+    }
+  };
+
+  const handleDownloadFile = async (path: string) => {
+    try {
+      const url = await getClientFileUrl(path);
+      window.open(url, "_blank");
+    } catch (err: any) {
+      toastError("Dosya bağlantısı oluşturulamadı");
+    }
+  };
 
   if (!client) return null;
 
@@ -54,9 +101,9 @@ export default function DanismanDetailPage() {
 
   const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
     { key: "genel", label: "Genel Bakış", icon: User },
-    { key: "timeline", label: "Zaman Çizelgesi", icon: Clock },
-    { key: "raporlar", label: "Belgeler", icon: ClipboardList },
-    { key: "analiz", label: "Analiz", icon: BarChart3 },
+    { key: "seanslar", label: "Seanslar", icon: Activity },
+    { key: "degerlendirmeler", label: "Değerlendirmeler", icon: ClipboardList },
+    { key: "belgeler", label: "Belgeler", icon: FileText },
   ];
 
   return (
@@ -203,39 +250,10 @@ export default function DanismanDetailPage() {
               </div>
             </div>
 
-            {/* Aktif Hedefler */}
-            {activeGoals.length > 0 && (
-              <div className="bg-white rounded-2xl p-4 border md:col-span-2" style={{ borderColor: "#f0fdf9" }}>
-                <div className="flex items-center gap-2 font-semibold text-gray-700 mb-3">
-                  <Target className="w-4 h-4 text-teal-600" />
-                  Aktif Hedefler
-                </div>
-                <div className="space-y-2">
-                  {activeGoals.map((goal) => (
-                    <div key={goal.id} className="flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-700 truncate">{goal.description}</p>
-                        {goal.icfCode && <span className="text-xs text-teal-600">{goal.icfCode}</span>}
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${goal.currentPercent}%`,
-                              background: goal.currentPercent >= goal.targetPercent ? "#10b981" : "#0d9488",
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs font-semibold text-gray-600 w-8 text-right">
-                          {goal.currentPercent}%
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Hedef Özeti */}
+            <div className="md:col-span-2">
+              <ClientGoalSummary goals={goals} />
+            </div>
 
             {/* Notlar */}
             {client.notes && (
@@ -247,97 +265,43 @@ export default function DanismanDetailPage() {
           </div>
         )}
 
-        {activeTab === "timeline" && (
-          <div className="max-w-2xl space-y-3">
-            {[...sessions.map((s) => ({ type: "session" as const, data: s, date: s.sessionDate })),
-              ...assessments.map((a) => ({ type: "assessment" as const, data: a, date: a.createdAt }))
-            ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((item, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="flex gap-3"
-              >
-                <div className="flex flex-col items-center">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0"
-                    style={{ background: item.type === "session" ? "#0d9488" : "#a855f7" }}
-                  >
-                    {item.type === "session" ? "S" : "D"}
+        {activeTab === "seanslar" && (
+          <div className="max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2 space-y-3">
+              <h3 className="font-semibold text-gray-700 mb-4">Terapi Geçmişi</h3>
+              {sessions.sort((a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime()).map((s, i) => (
+                <motion.div
+                  key={s.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="flex gap-3"
+                >
+                  <div className="flex flex-col items-center">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0 bg-teal-600">S</div>
+                    {i < sessions.length - 1 && <div className="w-px flex-1 mt-1" style={{ background: "#e5e7eb" }} />}
                   </div>
-                  {i < 20 && <div className="w-px flex-1 mt-1" style={{ background: "#e5e7eb" }} />}
-                </div>
-                <div className="flex-1 bg-white rounded-xl p-3 border mb-2" style={{ borderColor: "#f0fdf9" }}>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-xs font-semibold" style={{ color: item.type === "session" ? "#0d9488" : "#a855f7" }}>
-                        {item.type === "session" ? `Seans #${(item.data as TherapySession).sessionNumber}` : "Değerlendirme"}
-                      </span>
-                      {item.type === "session" && (item.data as TherapySession).clinicianNotes && (
-                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{(item.data as TherapySession).clinicianNotes}</p>
-                      )}
-                      {item.type === "assessment" && (
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {(item.data as Assessment).selectedCategories.length} alan değerlendirildi
-                        </p>
-                      )}
+                  <div className="flex-1 bg-white rounded-xl p-3 border mb-2" style={{ borderColor: "#f0fdf9" }}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-semibold text-teal-600">Seans #{s.sessionNumber}</span>
+                        {s.clinicianNotes && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{s.clinicianNotes}</p>}
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{format(parseISO(s.sessionDate), "d MMM yy", { locale: tr })}</span>
                     </div>
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {format(parseISO(item.date), "d MMM yy", { locale: tr })}
-                    </span>
                   </div>
+                </motion.div>
+              ))}
+              {sessions.length === 0 && (
+                <div className="text-center py-12 text-gray-400 border rounded-2xl border-dashed" style={{ borderColor: "#e5e7eb" }}>
+                  <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>Henüz seans kaydı yok</p>
                 </div>
-              </motion.div>
-            ))}
+              )}
+            </div>
 
-            {sessions.length === 0 && assessments.length === 0 && (
-              <div className="text-center py-12 text-gray-400">
-                <div className="text-4xl mb-3">📋</div>
-                <p>Henüz kayıt yok</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === "raporlar" && (
-          <div className="max-w-3xl space-y-4">
-            {/* Rapor İndirme Kartları */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              
-              {/* Değerlendirme Raporu */}
-              <div className="bg-white rounded-2xl p-5 border flex flex-col items-center justify-center text-center h-48" style={{ borderColor: "#ccfbf1" }}>
-                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: "#f0fdf9" }}>
-                  <FileText className="w-6 h-6 text-teal-600" />
-                </div>
-                <h3 className="font-semibold text-gray-800 mb-1">Klinik Değerlendirme Raporu</h3>
-                <p className="text-xs text-gray-400 mb-4">En son tamamlanan değerlendirmenin kapsamlı PDF özeti</p>
-                
-                {assessments.filter(a => a.status === "tamamlandı").length > 0 ? (
-                  <PDFDownloadLink
-                    document={<ClinicalReportDocument 
-                      client={client} 
-                      assessment={assessments.find(a => a.status === "tamamlandı")}
-                      clinicianName="Uzm. DKT." 
-                      reportType="assessment" 
-                    />}
-                    fileName={`${client.firstName}_${client.lastName}_Degerlendirme.pdf`}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all hover:opacity-90 w-full justify-center"
-                    style={{ background: "#0d9488" }}
-                  >
-                    {({ loading }) => (
-                      loading ? "PDF Hazırlanıyor..." : <><Download className="w-4 h-4" /> PDF İndir</>
-                    )}
-                  </PDFDownloadLink>
-                ) : (
-                  <button disabled className="px-4 py-2 rounded-xl text-sm font-medium border text-gray-400 w-full" style={{ borderColor: "#e5e7eb", background: "#f9fafb" }}>
-                    Önce Değerlendirme Tamamlayın
-                  </button>
-                )}
-              </div>
-
-              {/* Terapi İlerleme Raporu */}
-              <div className="bg-white rounded-2xl p-5 border flex flex-col items-center justify-center text-center h-48" style={{ borderColor: "#dbeafe" }}>
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl p-5 border flex flex-col items-center justify-center text-center shadow-sm" style={{ borderColor: "#dbeafe" }}>
                 <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: "#eff6ff" }}>
                   <TrendingUp className="w-6 h-6 text-blue-600" />
                 </div>
@@ -346,20 +310,12 @@ export default function DanismanDetailPage() {
                 
                 {sessions.length > 0 ? (
                   <PDFDownloadLink
-                    document={<ClinicalReportDocument 
-                      client={client} 
-                      sessions={sessions}
-                      goals={goals}
-                      clinicianName="Uzm. DKT." 
-                      reportType="progress" 
-                    />}
+                    document={<ClinicalReportDocument client={client} sessions={sessions} goals={goals} settings={settings} reportType="progress" />}
                     fileName={`${client.firstName}_${client.lastName}_Ilerleme.pdf`}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all hover:opacity-90 w-full justify-center"
                     style={{ background: "#3b82f6" }}
                   >
-                    {({ loading }) => (
-                      loading ? "PDF Hazırlanıyor..." : <><Download className="w-4 h-4" /> PDF İndir</>
-                    )}
+                    {({ loading }) => (loading ? "PDF Hazırlanıyor..." : <><Download className="w-4 h-4" /> PDF İndir</>)}
                   </PDFDownloadLink>
                 ) : (
                   <button disabled className="px-4 py-2 rounded-xl text-sm font-medium border text-gray-400 w-full" style={{ borderColor: "#e5e7eb", background: "#f9fafb" }}>
@@ -367,42 +323,155 @@ export default function DanismanDetailPage() {
                   </button>
                 )}
               </div>
-              
-            </div>
-            
-            {/* Eski Rapor Geçmişi Listesi (Mock/Visual only for now) */}
-            <div className="bg-white rounded-2xl p-4 border" style={{ borderColor: "#f0fdf9" }}>
-              <div className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-teal-600" />
-                Rapor Geçmişi
-              </div>
-              {assessments.filter(a => a.status === "tamamlandı").length > 0 ? (
-                <div className="space-y-2">
-                  {assessments.filter(a => a.status === "tamamlandı").map(a => (
-                    <div key={a.id} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-lg border border-transparent hover:border-gray-100">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-gray-400" />
-                        <span className="text-xs text-gray-700">Değerlendirme Raporu</span>
-                      </div>
-                      <span className="text-xs text-gray-400">{format(parseISO(a.createdAt), "d MMM yyyy", { locale: tr })}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                 <p className="text-xs text-gray-400 italic">Geçmiş rapor bulunamadı.</p>
-              )}
             </div>
           </div>
         )}
 
-        {activeTab === "analiz" && (
-          <div className="max-w-2xl">
-            <Link href={`/crocodil/analiz/${id}`}>
-              <button className="w-full py-3 rounded-xl text-sm font-medium text-white"
-                style={{ background: "linear-gradient(135deg, #0d9488, #134e4a)" }}>
-                Detaylı Analiz Sayfasını Aç
-              </button>
-            </Link>
+        {activeTab === "degerlendirmeler" && (
+          <div className="max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2 space-y-3">
+              <h3 className="font-semibold text-gray-700 mb-4">Değerlendirme Geçmişi</h3>
+              {assessments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
+                <motion.div
+                  key={a.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="flex gap-3"
+                >
+                  <div className="flex flex-col items-center">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0 bg-purple-500">D</div>
+                    {i < assessments.length - 1 && <div className="w-px flex-1 mt-1" style={{ background: "#e5e7eb" }} />}
+                  </div>
+                  <div className="flex-1 bg-white rounded-xl p-3 border mb-2 cursor-pointer hover:bg-gray-50 transition-colors" 
+                       onClick={() => router.push(`/crocodil/degerlendirme/${client.id}`)}
+                       style={{ borderColor: "#f0fdf9" }}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-semibold text-purple-600">Değerlendirme</span>
+                        <p className="text-xs text-gray-500 mt-0.5">{a.selectedCategories.length} alan değerlendirildi ({a.status})</p>
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{format(parseISO(a.createdAt), "d MMM yy", { locale: tr })}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+              {assessments.length === 0 && (
+                <div className="text-center py-12 text-gray-400 border rounded-2xl border-dashed" style={{ borderColor: "#e5e7eb" }}>
+                  <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>Henüz değerlendirme kaydı yok</p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl p-5 border flex flex-col items-center justify-center text-center shadow-sm" style={{ borderColor: "#ccfbf1" }}>
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: "#f0fdf9" }}>
+                  <FileText className="w-6 h-6 text-teal-600" />
+                </div>
+                <h3 className="font-semibold text-gray-800 mb-1">Klinik Değerlendirme Raporu</h3>
+                <p className="text-xs text-gray-400 mb-4">En son tamamlanan değerlendirmenin kapsamlı PDF özeti</p>
+                
+                {assessments.filter(a => a.status === "tamamlandı").length > 0 ? (
+                  <PDFDownloadLink
+                    document={<ClinicalReportDocument client={client} assessment={assessments.find(a => a.status === "tamamlandı")} settings={settings} reportType="assessment" />}
+                    fileName={`${client.firstName}_${client.lastName}_Degerlendirme.pdf`}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all hover:opacity-90 w-full justify-center"
+                    style={{ background: "#0d9488" }}
+                  >
+                    {({ loading }) => (loading ? "PDF Hazırlanıyor..." : <><Download className="w-4 h-4" /> PDF İndir</>)}
+                  </PDFDownloadLink>
+                ) : (
+                  <button disabled className="px-4 py-2 rounded-xl text-sm font-medium border text-gray-400 w-full" style={{ borderColor: "#e5e7eb", background: "#f9fafb" }}>
+                    Önce Değerlendirme Tamamlayın
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "belgeler" && (
+          <div className="max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2 space-y-6">
+              <div>
+                <h3 className="font-semibold text-gray-700 mb-4">Yeni Dosya Yükle</h3>
+                <FileUploader clientId={client.id} onUploadSuccess={refreshFiles} />
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-700 mb-4">Danışan Dosyaları</h3>
+                {files.length > 0 ? (
+                  <div className="space-y-3">
+                    {files.map((file, i) => (
+                      <motion.div
+                        key={file.url}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        className="bg-white rounded-xl p-3 border flex items-center justify-between hover:bg-gray-50 transition-colors"
+                        style={{ borderColor: "#f0fdf9" }}
+                      >
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0 border" style={{ borderColor: "#f9fafb" }}>
+                            {getFileIcon(file.type)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-700 truncate">{file.name}</p>
+                            <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+                              <span>{formatBytes(file.size)}</span>
+                              <span className="text-gray-300">•</span>
+                              <span>{format(parseISO(file.createdAt), "d MMM yyyy", { locale: tr })}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleDownloadFile(file.url)} className="p-2 text-gray-400 hover:text-teal-600 transition-colors rounded-lg hover:bg-teal-50" title="İndir / Görüntüle">
+                            <Download className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleDeleteFile(file.url)} className="p-2 text-gray-400 hover:text-red-600 transition-colors rounded-lg hover:bg-red-50" title="Sil">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl p-8 border border-dashed text-center" style={{ borderColor: "#d1d5db" }}>
+                    <div className="w-12 h-12 mx-auto bg-gray-50 rounded-full flex items-center justify-center mb-3">
+                      <FileText className="w-5 h-5 text-gray-400" />
+                    </div>
+                    <p className="text-sm font-medium text-gray-600">Henüz dosya yüklenmedi.</p>
+                    <p className="text-xs text-gray-400 mt-1">Bu danışan için henüz sisteme bir dosya eklenmemiş.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl p-5 border flex flex-col items-center justify-center text-center shadow-sm" style={{ borderColor: "#fef9c3" }}>
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: "#fefce8" }}>
+                  <span className="text-2xl">🏠</span>
+                </div>
+                <h3 className="font-semibold text-gray-800 mb-1">Ev Egzersiz Programı</h3>
+                <p className="text-xs text-gray-400 mb-4">Son seansa ait ev egzersiz programını aile için indirin</p>
+                
+                {sessions.some(s => s.hep?.exercises?.length) ? (
+                  <PDFDownloadLink
+                    document={<ClinicalReportDocument client={client} sessions={sessions} settings={settings} reportType="hep" />}
+                    fileName={`${client.firstName}_${client.lastName}_EvProgrami.pdf`}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all hover:opacity-90 w-full justify-center"
+                    style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
+                  >
+                    {({ loading }) => (loading ? "Hazırlanıyor..." : <><Download className="w-4 h-4" /> PDF İndir</>)}
+                  </PDFDownloadLink>
+                ) : (
+                  <button disabled className="px-4 py-2 rounded-xl text-sm font-medium border text-gray-400 w-full" style={{ borderColor: "#e5e7eb", background: "#f9fafb" }}>
+                    Seansta HEP Tanımlayın
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>

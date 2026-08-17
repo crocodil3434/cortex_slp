@@ -1,10 +1,11 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { AssessmentFormProps } from "./shared";
 import { LABEL, INPUT, SECTION, SECTION_TITLE, TEXTAREA, SaveBar, RadioGroup } from "./shared";
 import { generateAssessmentSummary } from "@/lib/crocodil/gemini";
 import { getSettings, saveGoal } from "@/lib/crocodil/storage";
 import { FileText, Sparkles, Loader2, Target, Download } from "lucide-react";
+import { useToast } from "@/components/crocodil/Toast";
 
 export default function ConclusionForm({ assessment, onSave, client }: AssessmentFormProps) {
   const [data, setData] = useState(assessment.conclusion ?? {
@@ -16,9 +17,14 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
   });
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const { error } = useToast();
   const [goals, setGoals] = useState([{ desc: "", icf: "" }]);
   
-  const settings = getSettings();
+  const [settings, setSettings] = useState<any>(null);
+  
+  useEffect(() => {
+    getSettings().then(setSettings);
+  }, []);
   const age = client.birthDate ? new Date().getFullYear() - new Date(client.birthDate).getFullYear() : 0;
 
   const handleSave = async () => {
@@ -27,7 +33,7 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
     
     // Hedefleri kaydet
     const validGoals = goals.filter((g) => g.desc.trim());
-    validGoals.forEach((g) => {
+    await Promise.all(validGoals.map((g) => 
       saveGoal({
         clientId: client.id,
         description: g.desc,
@@ -36,15 +42,15 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
         currentPercent: 0,
         domain: "bodyFunction",
         status: "aktif",
-      });
-    });
+      })
+    ));
     
     setSaving(false);
   };
 
   const handleGenerateSummary = async () => {
     if (!settings?.geminiApiKey) {
-      alert("AI Özeti için ayarlardan Gemini API anahtarı eklemelisiniz.");
+      error("Eksik Ayar", "AI Özeti için ayarlardan Gemini API anahtarı eklemelisiniz.");
       return;
     }
     setAiLoading(true);
@@ -58,7 +64,7 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
       const summary = await generateAssessmentSummary(payload, age, settings.geminiApiKey);
       setData((d) => ({ ...d, summary }));
     } catch (err: any) {
-      alert(err.message ?? "Hata");
+      error("AI Hatası", err.message ?? "Özet oluşturulurken hata oluştu.");
     } finally {
       setAiLoading(false);
     }

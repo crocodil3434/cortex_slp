@@ -42,3 +42,4 @@ next-env.d.ts
 
 # sensitive
 google_credentials.md
+.vercel

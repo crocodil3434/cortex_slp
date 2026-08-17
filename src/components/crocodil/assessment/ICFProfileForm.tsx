@@ -7,6 +7,7 @@ type ICFCategory = "all" | "b" | "s" | "d" | "e";
 import { askICFAssistant } from "@/lib/crocodil/gemini";
 import { getSettings } from "@/lib/crocodil/storage";
 import { Search, Plus, Sparkles, Map, Trash2, Loader2 } from "lucide-react";
+import { useToast } from "@/components/crocodil/Toast";
 
 export default function ICFProfileForm({ assessment, onSave, client }: AssessmentFormProps) {
   const [data, setData] = useState(assessment.icf ?? {
@@ -19,8 +20,13 @@ export default function ICFProfileForm({ assessment, onSave, client }: Assessmen
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState("");
+  const { error } = useToast();
   
-  const settings = getSettings();
+  const [settings, setSettings] = useState<any>(null);
+  
+  useEffect(() => {
+    getSettings().then(setSettings);
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -46,7 +52,7 @@ export default function ICFProfileForm({ assessment, onSave, client }: Assessmen
 
   const handleAiAsk = async () => {
     if (!settings?.geminiApiKey) {
-      alert("AI özelliği için ayarlardan Gemini API anahtarı eklemelisiniz.");
+      error("Eksik Ayar", "AI özelliği için ayarlardan Gemini API anahtarı eklemelisiniz.");
       return;
     }
     setAiLoading(true);

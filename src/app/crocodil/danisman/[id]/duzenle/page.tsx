@@ -7,6 +7,7 @@ import { saveClient, getClient } from "@/lib/crocodil/storage";
 import type { Client } from "@/lib/crocodil/types";
 import { ArrowLeft, Save, User, Phone, Calendar, Stethoscope, CreditCard } from "lucide-react";
 import Link from "next/link";
+import { useToast } from "@/components/crocodil/Toast";
 
 const SECTION = "border rounded-2xl p-4 space-y-3";
 const LABEL = "text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1";
@@ -16,6 +17,7 @@ const SECTION_TITLE = "flex items-center gap-2 font-semibold text-gray-700 mb-3"
 export default function DuzenleDanismanPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  const { error } = useToast();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     firstName: "",
@@ -39,39 +41,40 @@ export default function DuzenleDanismanPage() {
 
   useEffect(() => {
     if (id) {
-      const client = getClient(id);
-      if (client) {
-        setForm({
-          firstName: client.firstName || "",
-          lastName: client.lastName || "",
-          birthDate: client.birthDate || "",
-          gender: client.gender || "belirtilmemiş",
-          handedness: client.handedness || "sağ",
-          phone: client.phone || "",
-          email: client.email || "",
-          parentName: client.parentName || "",
-          parentPhone: client.parentPhone || "",
-          parentRelation: client.parentRelation || "",
-          referralSource: client.referralSource || "",
-          referralDiagnosis: client.referralDiagnosis || "",
-          primaryDiagnosis: client.primaryDiagnosis || "",
-          insuranceType: client.insuranceType || "SGK",
-          insuranceName: client.insuranceName || "",
-          notes: client.notes || "",
-          status: client.status || "aktif",
-        });
-      }
+      getClient(id as string).then(client => {
+        if (client) {
+          setForm({
+            firstName: client.firstName || "",
+            lastName: client.lastName || "",
+            birthDate: client.birthDate || "",
+            gender: client.gender || "belirtilmemiş",
+            handedness: client.handedness || "sağ",
+            phone: client.phone || "",
+            email: client.email || "",
+            parentName: client.parentName || "",
+            parentPhone: client.parentPhone || "",
+            parentRelation: client.parentRelation || "",
+            referralSource: client.referralSource || "",
+            referralDiagnosis: client.referralDiagnosis || "",
+            primaryDiagnosis: client.primaryDiagnosis || "",
+            insuranceType: client.insuranceType || "SGK",
+            insuranceName: client.insuranceName || "",
+            notes: client.notes || "",
+            status: client.status || "aktif",
+          });
+        }
+      });
     }
   }, [id]);
 
   const handleSave = async () => {
     if (!form.firstName.trim() || !form.lastName.trim()) {
-      alert("Ad ve soyad zorunludur.");
+      error("Eksik Bilgi", "Ad ve soyad alanları zorunludur.");
       return;
     }
     setSaving(true);
     try {
-      saveClient({ id, ...form });
+      await saveClient({ id: id as string, ...form });
       router.push(`/crocodil/danisman/${id}`);
     } finally {
       setSaving(false);

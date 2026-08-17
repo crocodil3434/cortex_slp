@@ -7,6 +7,7 @@ import { saveClient, getClients, saveCalendarEvent } from "@/lib/crocodil/storag
 import type { Client } from "@/lib/crocodil/types";
 import { ArrowLeft, Save, User, Phone, Calendar, Stethoscope, CreditCard } from "lucide-react";
 import Link from "next/link";
+import { useToast } from "@/components/crocodil/Toast";
 
 const SECTION = "border rounded-2xl p-4 space-y-3";
 const LABEL = "text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1";
@@ -16,6 +17,7 @@ const SECTION_TITLE = "flex items-center gap-2 font-semibold text-gray-700 mb-3"
 export default function YeniDanismanPage() {
   const router = useRouter();
   const params = useSearchParams();
+  const { error } = useToast();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     firstName: "",
@@ -39,12 +41,12 @@ export default function YeniDanismanPage() {
 
   const handleSave = async () => {
     if (!form.firstName.trim() || !form.lastName.trim()) {
-      alert("Ad ve soyad zorunludur.");
+      error("Eksik Bilgi", "Ad ve soyad alanları zorunludur.");
       return;
     }
     setSaving(true);
     try {
-      const newClient = saveClient({ ...form });
+      const newClient = await saveClient({ ...form });
       // Takvim etkinliğini danışanla eşleştir
       const eventId = params.get("eventId");
       if (eventId) {

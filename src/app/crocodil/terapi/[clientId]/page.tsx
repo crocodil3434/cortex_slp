@@ -36,19 +36,24 @@ export default function TerapiSeansPage() {
 
   useEffect(() => {
     if (!clientId) return;
-    const c = getClient(clientId);
-    if (!c) { router.push("/crocodil/danisman"); return; }
-    setClient(c);
-    const g = getGoals(clientId).filter(x => x.status === "aktif");
-    setGoals(g);
-    setGoalProgress(g.map(goal => ({ goalId: goal.id, trials: 10, correct: 0, notes: "" })));
-    setSessionCount(getSessions(clientId).length);
-  }, [clientId]);
+    const load = async () => {
+      const c = await getClient(clientId as string);
+      if (!c) { router.push("/crocodil/danisman"); return; }
+      setClient(c);
+      const allGoals = await getGoals(clientId as string);
+      const g = allGoals.filter(x => x.status === "aktif");
+      setGoals(g);
+      setGoalProgress(g.map(goal => ({ goalId: goal.id, trials: 10, correct: 0, notes: "" })));
+      const sessions = await getSessions(clientId as string);
+      setSessionCount(sessions.length);
+    };
+    load();
+  }, [clientId, router]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
     const session: Omit<TherapySession, "id" | "createdAt" | "sessionNumber"> = {
-      clientId,
+      clientId: clientId as string,
       sessionDate,
       durationMinutes,
       sessionMode: "klinik",
@@ -64,7 +69,7 @@ export default function TerapiSeansPage() {
       homeProgram,
     };
     
-    saveSession(session);
+    await saveSession(session as any);
     router.push(`/crocodil/danisman/${clientId}`);
   };
 

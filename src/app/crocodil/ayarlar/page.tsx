@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { getSettings, saveSettings, hashPin } from "@/lib/crocodil/storage";
+import { getSettings, saveSettings } from "@/lib/crocodil/storage";
 import type { CrocodilSettings } from "@/lib/crocodil/types";
+import { useToast } from "@/components/crocodil/Toast";
 import { Save, Eye, EyeOff, Key, User, Calendar, Globe, AlertTriangle } from "lucide-react";
 
 const LABEL = "text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1";
@@ -17,37 +18,34 @@ export default function AyarlarPage() {
   const [showHospitalKey, setShowHospitalKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [pinError, setPinError] = useState("");
+  const [clinicianError, setClinicianError] = useState("");
+  const { success, error } = useToast();
 
   useEffect(() => {
-    const s = getSettings();
-    if (s) setForm(s);
+    getSettings().then(s => {
+      if (s) setForm(s);
+    });
   }, []);
 
   const f = (key: keyof CrocodilSettings) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
-  const handleSave = () => {
-    if (!form.clinicianName?.trim()) { alert("Klinisyen adı zorunludur."); return; }
-
-    let pin = form.pin ?? "";
-
-    if (newPin) {
-      if (newPin.length !== 6 || !/^\d{6}$/.test(newPin)) {
-        setPinError("PIN 6 haneli rakamdan oluşmalıdır.");
-        return;
-      }
-      if (newPin !== confirmPin) {
-        setPinError("PIN'ler eşleşmiyor.");
-        return;
-      }
-      pin = hashPin(newPin);
-      setPinError("");
+  const handleSave = async () => {
+    if (!form.clinicianName?.trim()) {
+      setClinicianError("Klinisyen adı zorunludur.");
+      error("Eksik Alan", "Lütfen klinisyen adınızı girin.");
+      return;
     }
-
-    saveSettings({ ...(form as CrocodilSettings), pin });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setClinicianError("");
+    try {
+      await saveSettings(form as CrocodilSettings);
+      setSaved(true);
+      success("Ayarlar kaydedildi!", "Değişiklikleriniz başarıyla kaydedildi.");
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      error("Kaydetme hatası", e?.message);
+    }
   };
 
   const SECTION = "bg-white rounded-2xl p-5 border space-y-4";
@@ -90,46 +88,7 @@ export default function AyarlarPage() {
           </div>
         </div>
 
-        {/* PIN Değiştir */}
-        <div className={SECTION} style={{ borderColor: "#e5f7f5" }}>
-          <div className="flex items-center gap-2 font-semibold text-gray-700">
-            <Key className="w-4 h-4 text-teal-600" />
-            PIN Değiştir
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={LABEL}>Yeni PIN</label>
-              <input
-                type="password"
-                maxLength={6}
-                value={newPin}
-                onChange={(e) => { setNewPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setPinError(""); }}
-                placeholder="6 haneli PIN"
-                className={INPUT}
-                style={{ borderColor: pinError ? "#ef4444" : "#e5e7eb" }}
-              />
-            </div>
-            <div>
-              <label className={LABEL}>Onayla</label>
-              <input
-                type="password"
-                maxLength={6}
-                value={confirmPin}
-                onChange={(e) => { setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setPinError(""); }}
-                placeholder="Tekrar girin"
-                className={INPUT}
-                style={{ borderColor: pinError ? "#ef4444" : "#e5e7eb" }}
-              />
-            </div>
-          </div>
-          {pinError && (
-            <p className="text-xs text-red-500 flex items-center gap-1">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {pinError}
-            </p>
-          )}
-          <p className="text-xs text-gray-400">Boş bırakırsanız mevcut PIN değişmez.</p>
-        </div>
+
 
         {/* Gemini AI */}
         <div className={SECTION} style={{ borderColor: "#fef3c7", background: "linear-gradient(135deg, #fffbeb, white)" }}>

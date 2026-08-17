@@ -51,12 +51,15 @@ export default function AssessmentWizardPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const a = getAssessment(assessmentId);
-    const c = getClient(clientId);
-    if (!a || !c) { router.push(`/crocodil/danisman/${clientId}`); return; }
-    setAssessment(a);
-    setClient(c);
-  }, [assessmentId, clientId]);
+    const load = async () => {
+      const a = await getAssessment(assessmentId as string);
+      const c = await getClient(clientId as string);
+      if (!a || !c) { router.push(`/crocodil/danisman/${clientId}`); return; }
+      setAssessment(a);
+      setClient(c);
+    };
+    load();
+  }, [assessmentId, clientId, router]);
 
   const currentCat = category as AssessmentCategory;
   const categories = assessment?.selectedCategories ?? [];
@@ -70,7 +73,7 @@ export default function AssessmentWizardPage() {
       if (!assessment) return;
       setSaving(true);
       try {
-        const updated = saveAssessment({
+        const updated = await saveAssessment({
           ...assessment,
           ...data,
           id: assessment.id,
@@ -84,12 +87,12 @@ export default function AssessmentWizardPage() {
     [assessment]
   );
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (nextCat) {
       router.push(`/crocodil/degerlendirme/${clientId}/form/${assessmentId}/${nextCat}`);
     } else {
       // Tamamlandı — değerlendirmeyi bitir
-      saveAssessment({ ...assessment!, status: "tamamlandı" });
+      await saveAssessment({ ...assessment!, status: "tamamlandı" });
       router.push(`/crocodil/danisman/${clientId}`);
     }
   };

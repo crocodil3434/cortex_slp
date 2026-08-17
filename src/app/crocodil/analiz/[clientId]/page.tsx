@@ -21,15 +21,18 @@ export default function AnalizPage() {
 
   useEffect(() => {
     if (!clientId) return;
-    const c = getClient(clientId);
-    if (!c) { router.push("/crocodil/danisman"); return; }
-    setClient(c);
-    setGoals(getGoals(clientId));
-    
-    // Seansları tarih sırasına göre sırala
-    const sess = getSessions(clientId).sort((a, b) => new Date(a.sessionDate).getTime() - new Date(b.sessionDate).getTime());
-    setSessions(sess);
-  }, [clientId]);
+    const load = async () => {
+      const c = await getClient(clientId as string);
+      if (!c) { router.push("/crocodil/danisman"); return; }
+      setClient(c);
+      setGoals(await getGoals(clientId as string));
+      
+      const allSessions = await getSessions(clientId as string);
+      const sess = allSessions.sort((a, b) => new Date(a.sessionDate).getTime() - new Date(b.sessionDate).getTime());
+      setSessions(sess);
+    };
+    load();
+  }, [clientId, router]);
 
   if (!client) return null;
 

@@ -1,5 +1,5 @@
 // ============================================================
-// CROCODIL — localStorage CRUD Yardımcı Fonksiyonları
+// CROCODIL — Supabase PostgreSQL CRUD Yardımcı Fonksiyonları
 // ============================================================
 
 import type {
@@ -11,176 +11,162 @@ import type {
   AIGeneratedMaterial,
   CrocodilSettings,
 } from "./types";
-
-// ── Anahtar sabitleri ─────────────────────────────────────
-const KEYS = {
-  CLIENTS: "crocodil_clients",
-  ASSESSMENTS: "crocodil_assessments",
-  SESSIONS: "crocodil_sessions",
-  GOALS: "crocodil_goals",
-  CALENDAR_EVENTS: "crocodil_calendar_events",
-  AI_MATERIALS: "crocodil_ai_materials",
-  SETTINGS: "crocodil_settings",
-  PIN_ATTEMPTS: "crocodil_pin_attempts",
-  PIN_LOCKED_UNTIL: "crocodil_pin_locked_until",
-  AUTH_TOKEN: "crocodil_auth",
-} as const;
+import { createClient } from "@/lib/supabase/client";
 
 // ── Genel yardımcılar ─────────────────────────────────────
-function load<T>(key: string): T[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T[]) : [];
-  } catch {
-    return [];
-  }
+const getSupabase = () => createClient();
+
+async function getCurrentUserId(): Promise<string> {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user?.id) throw new Error("Kullanıcı oturumu bulunamadı.");
+  return session.user.id;
 }
 
-function save<T>(key: string, data: T[]): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(key, JSON.stringify(data));
+export async function logout(): Promise<void> {
+  const supabase = getSupabase();
+  await supabase.auth.signOut();
 }
 
-function loadOne<T>(key: string): T | null {
-  if (typeof window === "undefined") return null;
+export async function isAuthenticated(): Promise<boolean> {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  return !!session;
+}
+
+// ── Ayarlar ───────────────────────────────────────────────
+function mapSettingsFromDb(db: any): CrocodilSettings {
+  return {
+    pin: db.pin,
+    clinicianName: db.clinician_name,
+    clinicName: db.clinic_name,
+    geminiApiKey: db.gemini_api_key,
+    googleCalendarClientId: db.google_calendar_client_id,
+    googleCalendarLinked: db.google_calendar_linked,
+    hospitalApiUrl: db.hospital_api_url,
+    hospitalApiKey: db.hospital_api_key,
+    theme: db.theme || "light"
+  };
+}
+
+export async function getSettings(): Promise<CrocodilSettings | null> {
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
+    const supabase = getSupabase();
+    const userId = await getCurrentUserId();
+    const { data, error } = await supabase.from("settings").select("*").eq("user_id", userId).single();
+    if (error && error.code !== "PGRST116") throw error; // PGRST116 is no rows returned
+    if (!data) return null;
+    return mapSettingsFromDb(data);
+  } catch (err) {
+    console.error("getSettings error", err);
     return null;
   }
 }
 
-function saveOne<T>(key: string, data: T): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(key, JSON.stringify(data));
-}
+export async function saveSettings(settings: Partial<CrocodilSettings>): Promise<void> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  
+  const dbData = {
+    user_id: userId,
+    pin: settings.pin,
+    clinician_name: settings.clinicianName,
+    clinic_name: settings.clinicName,
+    gemini_api_key: settings.geminiApiKey,
+    google_calendar_client_id: settings.googleCalendarClientId,
+    google_calendar_linked: settings.googleCalendarLinked,
+    hospital_api_url: settings.hospitalApiUrl,
+    hospital_api_key: settings.hospitalApiKey,
+    theme: settings.theme,
+    updated_at: new Date().toISOString()
+  };
+  
+  // Sadece undefined olmayan alanları gönder
+  Object.keys(dbData).forEach((key) => {
+    if (dbData[key as keyof typeof dbData] === undefined) {
+      delete dbData[key as keyof typeof dbData];
+    }
+  });
 
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-// ── PIN & Auth ────────────────────────────────────────────
-export function hashPin(pin: string): string {
-  // Basit hash (production'da bcrypt kullanılmalı)
-  let hash = 0;
-  for (let i = 0; i < pin.length; i++) {
-    const char = pin.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
+  const { data: existing } = await supabase.from("settings").select("user_id").eq("user_id", userId).single();
+  
+  if (existing) {
+    const { error } = await supabase.from("settings").update(dbData).eq("user_id", userId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("settings").insert([dbData]);
+    if (error) throw error;
   }
-  return `croc_${Math.abs(hash).toString(16)}`;
-}
-
-export function verifyPin(inputPin: string): boolean {
-  const settings = getSettings();
-  if (!settings?.pin) return false;
-  return hashPin(inputPin) === settings.pin;
-}
-
-export function isLocked(): { locked: boolean; remainingSeconds: number } {
-  if (typeof window === "undefined") return { locked: false, remainingSeconds: 0 };
-  const lockedUntil = localStorage.getItem(KEYS.PIN_LOCKED_UNTIL);
-  if (!lockedUntil) return { locked: false, remainingSeconds: 0 };
-  const remaining = Math.ceil((parseInt(lockedUntil) - Date.now()) / 1000);
-  if (remaining <= 0) {
-    localStorage.removeItem(KEYS.PIN_LOCKED_UNTIL);
-    localStorage.removeItem(KEYS.PIN_ATTEMPTS);
-    return { locked: false, remainingSeconds: 0 };
-  }
-  return { locked: true, remainingSeconds: remaining };
-}
-
-export function recordFailedAttempt(): number {
-  if (typeof window === "undefined") return 0;
-  const attempts = parseInt(localStorage.getItem(KEYS.PIN_ATTEMPTS) || "0") + 1;
-  localStorage.setItem(KEYS.PIN_ATTEMPTS, String(attempts));
-  if (attempts >= 3) {
-    localStorage.setItem(KEYS.PIN_LOCKED_UNTIL, String(Date.now() + 30000));
-  }
-  return attempts;
-}
-
-export function clearFailedAttempts(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(KEYS.PIN_ATTEMPTS);
-  localStorage.removeItem(KEYS.PIN_LOCKED_UNTIL);
-}
-
-export function setAuthSession(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.setItem(KEYS.AUTH_TOKEN, `auth_${Date.now()}`);
-}
-
-export function isAuthenticated(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!sessionStorage.getItem(KEYS.AUTH_TOKEN);
-}
-
-export function logout(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(KEYS.AUTH_TOKEN);
-}
-
-// ── Ayarlar ───────────────────────────────────────────────
-export function getSettings(): CrocodilSettings | null {
-  return loadOne<CrocodilSettings>(KEYS.SETTINGS);
-}
-
-export function saveSettings(settings: CrocodilSettings): void {
-  saveOne(KEYS.SETTINGS, settings);
-}
-
-export function isFirstRun(): boolean {
-  return !getSettings()?.pin;
 }
 
 // ── Danışanlar ────────────────────────────────────────────
-export function getClients(): Client[] {
-  return load<Client>(KEYS.CLIENTS).sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
+export async function getClients(): Promise<Client[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from("clients").select("*").order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapClientFromDb);
 }
 
-export function getClient(id: string): Client | undefined {
-  return getClients().find((c) => c.id === id);
+export async function getClient(id: string): Promise<Client | undefined> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
+  if (error) return undefined;
+  return mapClientFromDb(data);
 }
 
-export function saveClient(client: Omit<Client, "id" | "createdAt" | "updatedAt"> & { id?: string }): Client {
-  const clients = getClients();
-  const now = new Date().toISOString();
-  const initials = `${client.firstName[0] ?? "?"}${client.lastName[0] ?? "?"}`.toUpperCase();
+export async function saveClient(client: Omit<Client, "id" | "createdAt" | "updatedAt"> & { id?: string }): Promise<Client> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  const initials = `${client.firstName?.[0] ?? "?"}${client.lastName?.[0] ?? "?"}`.toUpperCase();
+
+  const dbData = {
+    user_id: userId,
+    first_name: client.firstName,
+    last_name: client.lastName,
+    birth_date: client.birthDate || null,
+    gender: client.gender,
+    handedness: client.handedness,
+    id_number: client.idNumber,
+    phone: client.phone,
+    email: client.email,
+    address: client.address,
+    parent_name: client.parentName,
+    parent_phone: client.parentPhone,
+    parent_relation: client.parentRelation,
+    referral_source: client.referralSource,
+    referral_diagnosis: client.referralDiagnosis,
+    primary_diagnosis: client.primaryDiagnosis,
+    insurance_type: client.insuranceType,
+    insurance_name: client.insuranceName,
+    google_event_id: client.googleEventId,
+    google_calendar_linked: client.googleCalendarLinked,
+    status: client.status ?? "aktif",
+    notes: client.notes,
+    avatar_initials: initials,
+    color_tag: client.colorTag
+  };
 
   if (client.id) {
-    const idx = clients.findIndex((c) => c.id === client.id);
-    const updated: Client = { ...client, id: client.id, updatedAt: now, createdAt: clients[idx]?.createdAt ?? now, avatarInitials: initials };
-    if (idx >= 0) clients[idx] = updated;
-    else clients.push(updated);
-    save(KEYS.CLIENTS, clients);
-    return updated;
+    const { data, error } = await supabase.from("clients").update(dbData).eq("id", client.id).select().single();
+    if (error) throw error;
+    return mapClientFromDb(data);
+  } else {
+    const { data, error } = await supabase.from("clients").insert([dbData]).select().single();
+    if (error) throw error;
+    return mapClientFromDb(data);
   }
-
-  const newClient: Client = {
-    ...client,
-    id: generateId(),
-    createdAt: now,
-    updatedAt: now,
-    avatarInitials: initials,
-    status: client.status ?? "aktif",
-  };
-  clients.unshift(newClient);
-  save(KEYS.CLIENTS, clients);
-  return newClient;
 }
 
-export function deleteClient(id: string): void {
-  save(KEYS.CLIENTS, getClients().filter((c) => c.id !== id));
+export async function deleteClient(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) throw error;
 }
 
-export function searchClients(query: string): Client[] {
+export async function searchClients(query: string): Promise<Client[]> {
+  const all = await getClients();
   const q = query.toLowerCase();
-  return getClients().filter(
+  return all.filter(
     (c) =>
       c.firstName.toLowerCase().includes(q) ||
       c.lastName.toLowerCase().includes(q) ||
@@ -190,170 +176,242 @@ export function searchClients(query: string): Client[] {
 }
 
 // ── Değerlendirmeler ──────────────────────────────────────
-export function getAssessments(clientId?: string): Assessment[] {
-  const all = load<Assessment>(KEYS.ASSESSMENTS);
-  return clientId ? all.filter((a) => a.clientId === clientId) : all;
+export async function getAssessments(clientId?: string): Promise<Assessment[]> {
+  const supabase = getSupabase();
+  let query = supabase.from("assessments").select("*").order("created_at", { ascending: false });
+  if (clientId) query = query.eq("client_id", clientId);
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map(mapAssessmentFromDb);
 }
 
-export function getAssessment(id: string): Assessment | undefined {
-  return load<Assessment>(KEYS.ASSESSMENTS).find((a) => a.id === id);
+export async function getAssessment(id: string): Promise<Assessment | undefined> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from("assessments").select("*").eq("id", id).single();
+  if (error) return undefined;
+  return mapAssessmentFromDb(data);
 }
 
-export function saveAssessment(assessment: Partial<Assessment> & { clientId: string }): Assessment {
-  const all = load<Assessment>(KEYS.ASSESSMENTS);
-  const now = new Date().toISOString();
+export async function saveAssessment(assessment: Partial<Assessment> & { clientId: string }): Promise<Assessment> {
+  const supabase = getSupabase();
+  
+  const dbData = {
+    client_id: assessment.clientId,
+    assessor: assessment.assessor,
+    selected_categories: assessment.selectedCategories,
+    status: assessment.status,
+    personal: assessment.personal,
+    language: assessment.language,
+    articulation: assessment.articulation,
+    fluency: assessment.fluency,
+    voice: assessment.voice,
+    dysphagia: assessment.dysphagia,
+    aphasia: assessment.aphasia,
+    aac: assessment.aac,
+    motor_speech: assessment.motorSpeech,
+    social_comm: assessment.socialComm,
+    icf: assessment.icf,
+    conclusion: assessment.conclusion
+  };
 
   if (assessment.id) {
-    const idx = all.findIndex((a) => a.id === assessment.id);
-    const updated: Assessment = { ...all[idx], ...assessment, updatedAt: now } as Assessment;
-    if (idx >= 0) all[idx] = updated;
-    else all.unshift(updated);
-    save(KEYS.ASSESSMENTS, all);
-    return updated;
+    const { data, error } = await supabase.from("assessments").update(dbData).eq("id", assessment.id).select().single();
+    if (error) throw error;
+    return mapAssessmentFromDb(data);
+  } else {
+    const { data, error } = await supabase.from("assessments").insert([dbData]).select().single();
+    if (error) throw error;
+    return mapAssessmentFromDb(data);
   }
-
-  const newAssessment: Assessment = {
-    id: generateId(),
-    createdAt: now,
-    updatedAt: now,
-    assessor: getSettings()?.clinicianName ?? "Klinisyen",
-    selectedCategories: [],
-    status: "devam",
-    ...assessment,
-  } as Assessment;
-  all.unshift(newAssessment);
-  save(KEYS.ASSESSMENTS, all);
-  return newAssessment;
 }
 
 // ── Terapi Seansları ──────────────────────────────────────
-export function getSessions(clientId?: string): TherapySession[] {
-  const all = load<TherapySession>(KEYS.SESSIONS);
-  const filtered = clientId ? all.filter((s) => s.clientId === clientId) : all;
-  return filtered.sort((a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime());
+export async function getSessions(clientId?: string): Promise<TherapySession[]> {
+  const supabase = getSupabase();
+  let query = supabase.from("therapy_sessions").select("*").order("session_date", { ascending: false });
+  if (clientId) query = query.eq("client_id", clientId);
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map(mapSessionFromDb);
 }
 
-export function getSession(id: string): TherapySession | undefined {
-  return load<TherapySession>(KEYS.SESSIONS).find((s) => s.id === id);
+export async function getSession(id: string): Promise<TherapySession | undefined> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from("therapy_sessions").select("*").eq("id", id).single();
+  if (error) return undefined;
+  return mapSessionFromDb(data);
 }
 
-export function saveSession(session: Omit<TherapySession, "id" | "createdAt" | "sessionNumber"> & { id?: string, sessionNumber?: number }): TherapySession {
-  const all = load<TherapySession>(KEYS.SESSIONS);
-  const now = new Date().toISOString();
-
-  if (session.id) {
-    const idx = all.findIndex((s) => s.id === session.id);
-    const updated = { ...all[idx], ...session } as TherapySession;
-    if (idx >= 0) all[idx] = updated;
-    else all.unshift(updated);
-    save(KEYS.SESSIONS, all);
-    return updated;
+export async function saveSession(session: Omit<TherapySession, "id" | "createdAt" | "sessionNumber"> & { id?: string, sessionNumber?: number }): Promise<TherapySession> {
+  const supabase = getSupabase();
+  
+  let num = session.sessionNumber;
+  if (!num) {
+    const { count } = await supabase.from("therapy_sessions").select("*", { count: "exact", head: true }).eq("client_id", session.clientId);
+    num = (count || 0) + 1;
   }
 
-  // Seans numarasını otomatik belirle
-  const clientSessions = all.filter((s) => s.clientId === session.clientId);
-  const sessionNumber = clientSessions.length + 1;
-
-  const newSession: TherapySession = {
-    id: generateId(),
-    createdAt: now,
-    ...session,
-    sessionNumber,
+  const dbData = {
+    client_id: session.clientId,
+    session_date: session.sessionDate,
+    duration_minutes: session.durationMinutes,
+    session_mode: session.sessionMode,
+    attendees: session.attendees,
+    session_number: num,
+    goal_progress: session.goalProgress,
+    techniques_used: session.techniquesUsed,
+    materials: session.materials,
+    activities: session.activities,
+    clinician_notes: session.clinicianNotes,
+    home_program: session.homeProgram,
+    hep: session.hep,
+    parent_training_notes: session.parentTrainingNotes,
+    next_session_plan: session.nextSessionPlan
   };
-  all.unshift(newSession);
-  save(KEYS.SESSIONS, all);
-  return newSession;
+
+  if (session.id) {
+    const { data, error } = await supabase.from("therapy_sessions").update(dbData).eq("id", session.id).select().single();
+    if (error) throw error;
+    return mapSessionFromDb(data);
+  } else {
+    const { data, error } = await supabase.from("therapy_sessions").insert([dbData]).select().single();
+    if (error) throw error;
+    return mapSessionFromDb(data);
+  }
 }
 
 // ── Hedefler ──────────────────────────────────────────────
-export function getGoals(clientId?: string): SMARTGoal[] {
-  const all = load<SMARTGoal>(KEYS.GOALS);
-  return clientId ? all.filter((g) => g.clientId === clientId) : all;
+export async function getGoals(clientId?: string): Promise<SMARTGoal[]> {
+  const supabase = getSupabase();
+  let query = supabase.from("smart_goals").select("*").order("created_at", { ascending: false });
+  if (clientId) query = query.eq("client_id", clientId);
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map(mapGoalFromDb);
 }
 
-export function saveGoal(goal: Omit<SMARTGoal, "id" | "createdAt"> & { id?: string }): SMARTGoal {
-  const all = load<SMARTGoal>(KEYS.GOALS);
-  const now = new Date().toISOString();
+export async function saveGoal(goal: Omit<SMARTGoal, "id" | "createdAt"> & { id?: string }): Promise<SMARTGoal> {
+  const supabase = getSupabase();
+  
+  const dbData = {
+    client_id: goal.clientId,
+    icf_code: goal.icfCode,
+    description: goal.description,
+    target_percent: goal.targetPercent,
+    current_percent: goal.currentPercent,
+    domain: goal.domain,
+    status: goal.status,
+    deadline: goal.deadline
+  };
 
   if (goal.id) {
-    const idx = all.findIndex((g) => g.id === goal.id);
-    const updated = { ...all[idx], ...goal } as SMARTGoal;
-    if (idx >= 0) all[idx] = updated;
-    else all.push(updated);
-    save(KEYS.GOALS, all);
-    return updated;
+    const { data, error } = await supabase.from("smart_goals").update(dbData).eq("id", goal.id).select().single();
+    if (error) throw error;
+    return mapGoalFromDb(data);
+  } else {
+    const { data, error } = await supabase.from("smart_goals").insert([dbData]).select().single();
+    if (error) throw error;
+    return mapGoalFromDb(data);
   }
-
-  const newGoal: SMARTGoal = { id: generateId(), createdAt: now, ...goal };
-  all.push(newGoal);
-  save(KEYS.GOALS, all);
-  return newGoal;
 }
 
-export function deleteGoal(id: string): void {
-  save(KEYS.GOALS, getGoals().filter((g) => g.id !== id));
+export async function deleteGoal(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from("smart_goals").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // ── Takvim Etkinlikleri ───────────────────────────────────
-export function getCalendarEvents(dateFrom?: string, dateTo?: string): CalendarEvent[] {
-  const all = load<CalendarEvent>(KEYS.CALENDAR_EVENTS);
-  if (!dateFrom && !dateTo) return all;
-  return all.filter((e) => {
-    const t = new Date(e.start).getTime();
-    if (dateFrom && t < new Date(dateFrom).getTime()) return false;
-    if (dateTo && t > new Date(dateTo).getTime()) return false;
-    return true;
-  });
+export async function getCalendarEvents(dateFrom?: string, dateTo?: string): Promise<CalendarEvent[]> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  let query = supabase.from("calendar_events").select("*").eq("user_id", userId);
+  
+  if (dateFrom) query = query.gte("start_time", dateFrom);
+  if (dateTo) query = query.lte("start_time", dateTo);
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map(mapEventFromDb);
 }
 
-export function saveCalendarEvents(events: CalendarEvent[]): void {
-  save(KEYS.CALENDAR_EVENTS, events);
-}
+export async function saveCalendarEvent(event: Omit<CalendarEvent, "id"> & { id?: string }): Promise<CalendarEvent> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  
+  const dbData = {
+    user_id: userId,
+    client_id: event.clientId,
+    title: event.title,
+    start_time: event.start,
+    end_time: event.end,
+    type: event.type,
+    session_type: event.sessionType,
+    notes: event.notes,
+    google_event_id: event.googleEventId,
+    color: event.color
+  };
 
-export function saveCalendarEvent(event: Omit<CalendarEvent, "id"> & { id?: string }): CalendarEvent {
-  const all = load<CalendarEvent>(KEYS.CALENDAR_EVENTS);
-  if (event.id) {
-    const idx = all.findIndex((e) => e.id === event.id);
-    const updated = { ...all[idx], ...event } as CalendarEvent;
-    if (idx >= 0) all[idx] = updated;
-    else all.push(updated);
-    save(KEYS.CALENDAR_EVENTS, all);
-    return updated;
+  if (event.googleEventId) {
+    const { data: existing } = await supabase.from("calendar_events").select("id").eq("google_event_id", event.googleEventId).maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase.from("calendar_events").update(dbData).eq("id", existing.id).select().single();
+      if (error) throw error;
+      return mapEventFromDb(data);
+    }
   }
-  const newEvent: CalendarEvent = { id: generateId(), ...event };
-  all.push(newEvent);
-  save(KEYS.CALENDAR_EVENTS, all);
-  return newEvent;
+
+  if (event.id && event.id.length === 36) { // 36 chars is a UUID length
+    const { data, error } = await supabase.from("calendar_events").update(dbData).eq("id", event.id).select().single();
+    if (error) throw error;
+    return mapEventFromDb(data);
+  } else {
+    const { data, error } = await supabase.from("calendar_events").insert([dbData]).select().single();
+    if (error) throw error;
+    return mapEventFromDb(data);
+  }
 }
 
-export function deleteCalendarEvent(id: string): void {
-  save(KEYS.CALENDAR_EVENTS, getCalendarEvents().filter((e) => e.id !== id));
+export async function deleteCalendarEvent(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from("calendar_events").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // ── AI Materyalleri ───────────────────────────────────────
-export function getAIMaterials(clientId?: string): AIGeneratedMaterial[] {
-  const all = load<AIGeneratedMaterial>(KEYS.AI_MATERIALS);
-  return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+export async function getAIMaterials(): Promise<AIGeneratedMaterial[]> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  const { data, error } = await supabase.from("ai_materials").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapAiMaterialFromDb);
 }
 
-export function saveAIMaterial(material: Omit<AIGeneratedMaterial, "id" | "createdAt">): AIGeneratedMaterial {
-  const all = load<AIGeneratedMaterial>(KEYS.AI_MATERIALS);
-  const newMaterial: AIGeneratedMaterial = {
-    id: generateId(),
-    createdAt: new Date().toISOString(),
-    ...material,
+export async function saveAIMaterial(material: Omit<AIGeneratedMaterial, "id" | "createdAt">): Promise<AIGeneratedMaterial> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  
+  const dbData = {
+    user_id: userId,
+    title: material.title,
+    content: material.content,
+    request: material.request
   };
-  all.unshift(newMaterial);
-  save(KEYS.AI_MATERIALS, all);
-  return newMaterial;
+
+  const { data, error } = await supabase.from("ai_materials").insert([dbData]).select().single();
+  if (error) throw error;
+  return mapAiMaterialFromDb(data);
 }
 
 // ── İstatistikler ─────────────────────────────────────────
-export function getDashboardStats() {
-  const clients = getClients();
-  const sessions = getSessions();
-  const assessments = getAssessments();
-  const goals = getGoals();
+export async function getDashboardStats() {
+  const clients = await getClients();
+  const sessions = await getSessions();
+  const assessments = await getAssessments();
+  const goals = await getGoals();
 
   const now = new Date();
   const weekStart = new Date(now);
@@ -379,3 +437,180 @@ export function getDashboardStats() {
     completedGoalsThisMonth: completedGoals.length,
   };
 }
+
+
+// --- Mappers ---
+
+function mapClientFromDb(db: any): Client {
+  return {
+    id: db.id,
+    createdAt: db.created_at,
+    updatedAt: db.updated_at,
+    firstName: db.first_name,
+    lastName: db.last_name,
+    birthDate: db.birth_date,
+    gender: db.gender,
+    handedness: db.handedness,
+    idNumber: db.id_number,
+    phone: db.phone,
+    email: db.email,
+    address: db.address,
+    parentName: db.parent_name,
+    parentPhone: db.parent_phone,
+    parentRelation: db.parent_relation,
+    referralSource: db.referral_source,
+    referralDiagnosis: db.referral_diagnosis,
+    primaryDiagnosis: db.primary_diagnosis,
+    insuranceType: db.insurance_type,
+    insuranceName: db.insurance_name,
+    googleEventId: db.google_event_id,
+    googleCalendarLinked: db.google_calendar_linked,
+    status: db.status,
+    notes: db.notes,
+    avatarInitials: db.avatar_initials,
+    colorTag: db.color_tag,
+  };
+}
+
+function mapAssessmentFromDb(db: any): Assessment {
+  return {
+    id: db.id,
+    clientId: db.client_id,
+    createdAt: db.created_at,
+    updatedAt: db.updated_at,
+    assessor: db.assessor,
+    selectedCategories: db.selected_categories || [],
+    status: db.status,
+    personal: db.personal,
+    language: db.language,
+    articulation: db.articulation,
+    fluency: db.fluency,
+    voice: db.voice,
+    dysphagia: db.dysphagia,
+    aphasia: db.aphasia,
+    aac: db.aac,
+    motorSpeech: db.motor_speech,
+    socialComm: db.social_comm,
+    icf: db.icf,
+    conclusion: db.conclusion,
+  };
+}
+
+function mapSessionFromDb(db: any): TherapySession {
+  return {
+    id: db.id,
+    clientId: db.client_id,
+    createdAt: db.created_at,
+    sessionDate: db.session_date,
+    durationMinutes: db.duration_minutes,
+    sessionMode: db.session_mode,
+    attendees: db.attendees,
+    sessionNumber: db.session_number,
+    goalProgress: db.goal_progress || [],
+    techniquesUsed: db.techniques_used || [],
+    materials: db.materials,
+    activities: db.activities,
+    clinicianNotes: db.clinician_notes,
+    homeProgram: db.home_program,
+    hep: db.hep,
+    parentTrainingNotes: db.parent_training_notes,
+    nextSessionPlan: db.next_session_plan,
+  };
+}
+
+function mapGoalFromDb(db: any): SMARTGoal {
+  return {
+    id: db.id,
+    clientId: db.client_id,
+    createdAt: db.created_at,
+    icfCode: db.icf_code,
+    description: db.description,
+    targetPercent: db.target_percent,
+    currentPercent: db.current_percent,
+    domain: db.domain,
+    status: db.status,
+    deadline: db.deadline,
+  };
+}
+
+function mapEventFromDb(db: any): CalendarEvent {
+  return {
+    id: db.id,
+    clientId: db.client_id,
+    title: db.title,
+    start: db.start_time,
+    end: db.end_time,
+    type: db.type,
+    sessionType: db.session_type,
+    notes: db.notes,
+    googleEventId: db.google_event_id,
+    color: db.color,
+  };
+}
+
+function mapAiMaterialFromDb(db: any): AIGeneratedMaterial {
+  return {
+    id: db.id,
+    createdAt: db.created_at,
+    title: db.title,
+    content: db.content,
+    request: db.request,
+  };
+}
+
+// ── Modül 4: Storage Fonksiyonları ─────────────────────────────────────────
+
+export type ClientFile = {
+  name: string;
+  url: string; // Internal path
+  size: number;
+  type: string;
+  createdAt: string;
+};
+
+export async function uploadClientFile(clientId: string, file: File): Promise<string> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  // Benzersiz isim oluştur
+  const uniqueName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+  const path = `${userId}/${clientId}/${uniqueName}`;
+  
+  const { data, error } = await supabase.storage.from("patient-files").upload(path, file);
+  if (error) throw error;
+  
+  return data.path;
+}
+
+export async function getClientFiles(clientId: string): Promise<ClientFile[]> {
+  const supabase = getSupabase();
+  const userId = await getCurrentUserId();
+  
+  const { data, error } = await supabase.storage.from("patient-files").list(`${userId}/${clientId}`);
+  if (error) throw error;
+  
+  return data
+    .filter(f => f.name !== ".emptyFolderPlaceholder")
+    .map(f => ({
+      name: f.name.replace(/^\d+_/, ""), // baştaki timestamp'i kaldır
+      url: `${userId}/${clientId}/${f.name}`,
+      size: f.metadata?.size || 0,
+      type: f.metadata?.mimetype || "application/octet-stream",
+      createdAt: f.created_at || new Date().toISOString(),
+    }))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function deleteClientFile(path: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase.storage.from("patient-files").remove([path]);
+  if (error) throw error;
+}
+
+export async function getClientFileUrl(path: string): Promise<string> {
+  const supabase = getSupabase();
+  // 1 saatlik imzalı URL
+  const { data, error } = await supabase.storage.from("patient-files").createSignedUrl(path, 60 * 60);
+  if (error) throw error;
+  return data.signedUrl;
+}
+

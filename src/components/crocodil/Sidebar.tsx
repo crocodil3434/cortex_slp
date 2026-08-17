@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { logout, getSettings } from "@/lib/crocodil/storage";
+import { CrocodilSettings } from "@/lib/crocodil/types";
+import { NotificationBell } from "@/components/crocodil/NotificationBell";
 import {
   CalendarDays,
   Users,
@@ -15,6 +17,7 @@ import {
   Settings,
   LogOut,
   ChevronRight,
+  LayoutDashboard,
 } from "lucide-react";
 
 interface NavItem {
@@ -25,6 +28,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { href: "/crocodil/dashboard", label: "Ana Panel", icon: LayoutDashboard },
   { href: "/crocodil/takvim", label: "Takvim", icon: CalendarDays },
   { href: "/crocodil/danisman", label: "Danışanlar", icon: Users },
   { href: "/crocodil/degerlendirme", label: "Değerlendirme", icon: ClipboardList },
@@ -40,7 +44,11 @@ interface SidebarProps {
 export function CrocodilSidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const settings = typeof window !== "undefined" ? getSettings() : null;
+  const [settings, setSettings] = React.useState<CrocodilSettings | null>(null);
+
+  React.useEffect(() => {
+    getSettings().then(setSettings);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -57,17 +65,20 @@ export function CrocodilSidebar({ onClose }: SidebarProps) {
     >
       {/* Logo & Başlık */}
       <div className="px-5 py-6 border-b" style={{ borderColor: "rgba(13,148,136,0.2)" }}>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
-            style={{ background: "rgba(13,148,136,0.2)", border: "1px solid rgba(13,148,136,0.3)" }}
-          >
-            🐊
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+              style={{ background: "rgba(13,148,136,0.2)", border: "1px solid rgba(13,148,136,0.3)" }}
+            >
+              🐊
+            </div>
+            <div>
+              <div className="text-white font-bold text-base leading-tight">Crocodil</div>
+              <div className="text-teal-400/70 text-xs">Medikal SLP</div>
+            </div>
           </div>
-          <div>
-            <div className="text-white font-bold text-base leading-tight">Crocodil</div>
-            <div className="text-teal-400/70 text-xs">Medikal SLP Sistemi</div>
-          </div>
+          <NotificationBell />
         </div>
 
         {settings?.clinicianName && (

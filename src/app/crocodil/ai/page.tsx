@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getSettings, saveAIMaterial } from "@/lib/crocodil/storage";
 import { generateCrocodilMaterial } from "@/lib/crocodil/gemini";
+import { useToast } from "@/components/crocodil/Toast";
 import type { DisorderCategory, MaterialType, AgeGroup, SeverityLevel } from "@/lib/crocodil/types";
 import {
   Sparkles, ChevronRight, Copy, Download, Check, RefreshCw,
@@ -81,8 +82,14 @@ export default function CrocodilAIPage() {
   const [error, setError] = useState("");
   const [dotCount, setDotCount] = useState(0);
   const resultRef = useRef<HTMLDivElement>(null);
+  const { success, error: toastError } = useToast();
 
-  const settings = typeof window !== "undefined" ? getSettings() : null;
+  const [settings, setSettings] = useState<any>(null);
+  
+  useEffect(() => {
+    getSettings().then(setSettings);
+  }, []);
+
   const hasApiKey = !!settings?.geminiApiKey;
 
   // Animasyonlu nokta
@@ -131,11 +138,11 @@ export default function CrocodilAIPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!result || !selectedDisorder || !selectedMaterial) return;
     const disorder = DISORDER_CARDS.find((d) => d.key === selectedDisorder);
     const material = MATERIAL_TYPES.find((m) => m.key === selectedMaterial);
-    saveAIMaterial({
+    await saveAIMaterial({
       request: {
         disorder: selectedDisorder,
         materialType: selectedMaterial,
@@ -149,7 +156,7 @@ export default function CrocodilAIPage() {
       content: result,
       title: `${disorder?.label ?? ""} — ${material?.label ?? ""}`,
     });
-    alert("Materyal kaydedildi!");
+    success("Başarılı", "Materyal başarıyla kaydedildi.");
   };
 
   const handleReset = () => {
