@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { LanguageProvider } from "@/context/LanguageContext";
-import { ClientLayoutWrapper } from "@/components/layout/ClientLayoutWrapper";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -31,9 +30,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-cream text-warm-gray-800">
         <LanguageProvider>
-          <ClientLayoutWrapper>
-            {children}
-          </ClientLayoutWrapper>
+          {children}
         </LanguageProvider>
       </body>
     </html>
