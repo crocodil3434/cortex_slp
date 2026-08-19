@@ -102,8 +102,16 @@ export async function getNotifications(): Promise<AppNotification[]> {
       });
     }
 
-  } catch (err) {
-    console.error("Bildirimler yüklenirken hata:", err);
+  } catch (err: unknown) {
+    // Supabase PGRST303 "JWT issued at future" — saat senkronizasyon farkından
+    // kaynaklanan geçici bir token hatası. Bildirim yüklenemedi, sessizce devam et.
+    const code = (err as { code?: string })?.code;
+    const msg  = (err as { message?: string })?.message ?? "";
+    const isJwtSkew = code === "PGRST303" || msg.includes("JWT issued at future") || msg.includes("future");
+
+    if (!isJwtSkew) {
+      console.warn("[Bildirimler] Beklenmeyen hata:", err);
+    }
   }
 
   // Tarihe göre ters sırala (en yeni/en acil üstte)

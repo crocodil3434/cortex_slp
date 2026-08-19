@@ -319,19 +319,34 @@ export interface AACAssessment {
 
 export interface MotorSpeechAssessment {
   // Oral motor
+  diagnosisType?: string;
   lipStructure?: string;
   tongueStructure?: string;
   palateFunctionNotes?: string;
   ddkRate?: string;
   ddkAccuracy?: "normal" | "reduced" | "impaired";
+  ddkAmr?: number;
+  ddkSmr?: number;
+  fda2Score?: number;
   // Dizartri
   dysarthriaType?: string;
   intelligibilityEffect?: SeverityLevel | null;
   fda2Notes?: string;
   // Apraksi
   asrsScore?: number;
-  apraxiaFeatures: string[];
+  apraxiaFeatures?: string[];
   apraxiaSeverity?: SeverityLevel | null;
+  // Modül 105 PROMPT İstasyonu Entegrasyonu
+  m105SessionId?: number;
+  m105Timestamp?: string;
+  mandibularRomDeg?: number;
+  semgAsymmetryPct?: number;
+  respirationRateBpm?: number;
+  f0MedianHz?: number;
+  jitterPct?: number;
+  shimmerPct?: number;
+  hnrDb?: number;
+  motorSynchronyIndex?: number;
   notes?: string;
 }
 

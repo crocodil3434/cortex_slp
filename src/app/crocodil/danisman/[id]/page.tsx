@@ -145,6 +145,13 @@ export default function DanismanDetailPage() {
                 Düzenle
               </button>
             </Link>
+            <Link href={`/crocodil/modul105?clientId=${id}`}>
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white shadow-sm transition-all hover:opacity-90"
+                style={{ background: "linear-gradient(135deg, #0d9488, #134e4a)", border: "1px solid #14b8a6" }}>
+                <span className="text-sm">📡</span>
+                Modül 105: PROMPT İstasyonu
+              </button>
+            </Link>
             <Link href={`/crocodil/degerlendirme/${id}`}>
               <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors hover:bg-teal-50"
                 style={{ borderColor: "#0d9488", color: "#0d9488" }}>
@@ -345,13 +352,46 @@ export default function DanismanDetailPage() {
                   </div>
                   <div className="flex-1 bg-white rounded-xl p-3 border mb-2 cursor-pointer hover:bg-gray-50 transition-colors" 
                        onClick={() => router.push(`/crocodil/degerlendirme/${client.id}`)}
-                       style={{ borderColor: "#f0fdf9" }}>
+                       style={{ borderColor: a.motorSpeech?.m105SessionId ? "#99f6e4" : "#f0fdf9" }}>
                     <div className="flex justify-between items-start">
-                      <div>
-                        <span className="text-xs font-semibold text-purple-600">Değerlendirme</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-purple-600">Değerlendirme</span>
+                          {a.motorSpeech?.m105SessionId && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 border border-teal-200">
+                              📡 Modül 105 PROMPT #{a.motorSpeech.m105SessionId}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500 mt-0.5">{a.selectedCategories.length} alan değerlendirildi ({a.status})</p>
+
+                        {/* Modül 105 Metrik Özeti */}
+                        {a.motorSpeech?.m105SessionId && (
+                          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t text-[11px]" style={{ borderColor: "#f0fdf9" }}>
+                            {a.motorSpeech.ddkAmr && (
+                              <span className="px-2 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">
+                                DDK: {a.motorSpeech.ddkAmr} Hz
+                              </span>
+                            )}
+                            {a.motorSpeech.mandibularRomDeg && (
+                              <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">
+                                Çene ROM: {a.motorSpeech.mandibularRomDeg}°
+                              </span>
+                            )}
+                            {a.motorSpeech.semgAsymmetryPct !== undefined && (
+                              <span className="px-2 py-0.5 rounded bg-teal-50 text-teal-700 font-medium">
+                                sEMG Asim: %{a.motorSpeech.semgAsymmetryPct}
+                              </span>
+                            )}
+                            {a.motorSpeech.respirationRateBpm && (
+                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">
+                                Solunum: {a.motorSpeech.respirationRateBpm} bpm
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-xs text-gray-400 flex-shrink-0">{format(parseISO(a.createdAt), "d MMM yy", { locale: tr })}</span>
+                      <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{format(parseISO(a.createdAt), "d MMM yy", { locale: tr })}</span>
                     </div>
                   </div>
                 </motion.div>

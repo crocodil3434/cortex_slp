@@ -43,3 +43,11 @@ next-env.d.ts
 # sensitive
 google_credentials.md
 .vercel
+
+# PlatformIO & Python
+.pio/
+*.db
+*.sqlite3
+module_105/server/.env
+*.html
+*.txt

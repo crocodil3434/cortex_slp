@@ -18,6 +18,7 @@ import {
   LogOut,
   ChevronRight,
   LayoutDashboard,
+  Radio,
 } from "lucide-react";
 
 interface NavItem {
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { href: "/crocodil/degerlendirme", label: "Değerlendirme", icon: ClipboardList },
   { href: "/crocodil/terapi", label: "Terapi Seansları", icon: Activity },
   { href: "/crocodil/analiz", label: "Analiz & Grafikler", icon: BarChart3 },
+  { href: "/crocodil/modul105", label: "Modül 105 — PROMPT", icon: Radio, badge: "M105" },
   { href: "/crocodil/ai", label: "Crocodil AI", icon: Sparkles, badge: "AI" },
 ];
 

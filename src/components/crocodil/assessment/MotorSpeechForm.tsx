@@ -10,6 +10,9 @@ const APRAXIA_FEATURES = [
   "Prosodi bozukluğu (eşitlenmiş vurgu)", "Başlatma güçlüğü"
 ];
 
+import Link from "next/link";
+import { Radio, ExternalLink, Sparkles } from "lucide-react";
+
 export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormProps) {
   const [data, setData] = useState(assessment.motorSpeech ?? {
     diagnosisType: "",
@@ -28,7 +31,73 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
   };
 
   return (
-    <div className="p-5 max-w-2xl mx-auto">
+    <div className="p-5 max-w-2xl mx-auto space-y-4">
+      {/* Modül 105 Canlı Ölçüm Başlatma Banner'ı */}
+      <div className="rounded-2xl p-4 border flex items-center justify-between gap-4"
+        style={{ background: "linear-gradient(135deg, #0f2027, #134e4a)", borderColor: "rgba(13,148,136,0.3)" }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-teal-500/20 border border-teal-500/30">
+            📡
+          </div>
+          <div>
+            <div className="text-white font-bold text-sm flex items-center gap-2">
+              Modül 105: PROMPT İstasyonu
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-500/30 text-teal-300 border border-teal-400/30">
+                Canlı Sensör
+              </span>
+            </div>
+            <p className="text-teal-300/70 text-xs mt-0.5">
+              Çene kinematiği (Kalman), sEMG masseter ve akustik F0 verilerini doğrudan aktarın.
+            </p>
+          </div>
+        </div>
+        <Link href={`/crocodil/modul105?clientId=${assessment.clientId}`}>
+          <button className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white transition-all hover:scale-105 shadow-md flex-shrink-0"
+            style={{ background: "linear-gradient(135deg, #0d9488, #14b8a6)" }}>
+            <Radio className="w-3.5 h-3.5" />
+            Ölçümü Başlat
+          </button>
+        </Link>
+      </div>
+
+      {/* Eğer Modül 105'ten ölçüm yapılmışsa telemetry kartı */}
+      {data.m105SessionId && (
+        <div className="bg-teal-50/70 rounded-2xl p-4 border" style={{ borderColor: "#99f6e4" }}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5">
+              <span>📊</span> Modül 105 Sensör Ölçüm Özeti (Seans #{data.m105SessionId})
+            </span>
+            <span className="text-[10px] text-teal-600 font-medium">{data.m105Timestamp || "Son Ölçüm"}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="bg-white p-2 rounded-xl border border-teal-100">
+              <span className="text-[10px] text-gray-400 block">DDK Hızı</span>
+              <span className="font-bold text-gray-800 text-sm">{data.ddkAmr || "—"} Hz</span>
+            </div>
+            <div className="bg-white p-2 rounded-xl border border-teal-100">
+              <span className="text-[10px] text-gray-400 block">Çene ROM</span>
+              <span className="font-bold text-gray-800 text-sm">{data.mandibularRomDeg || "—"}°</span>
+            </div>
+            <div className="bg-white p-2 rounded-xl border border-teal-100">
+              <span className="text-[10px] text-gray-400 block">sEMG Asimetri</span>
+              <span className="font-bold text-gray-800 text-sm">%{data.semgAsymmetryPct ?? "—"}</span>
+            </div>
+            <div className="bg-white p-2 rounded-xl border border-teal-100">
+              <span className="text-[10px] text-gray-400 block">Solunum</span>
+              <span className="font-bold text-gray-800 text-sm">{data.respirationRateBpm || "—"} bpm</span>
+            </div>
+            <div className="bg-white p-2 rounded-xl border border-teal-100">
+              <span className="text-[10px] text-gray-400 block">F0 Medyan</span>
+              <span className="font-bold text-gray-800 text-sm">{data.f0MedianHz || "—"} Hz</span>
+            </div>
+            <div className="bg-white p-2 rounded-xl border border-teal-100">
+              <span className="text-[10px] text-gray-400 block">HNR</span>
+              <span className="font-bold text-gray-800 text-sm">{data.hnrDb || "—"} dB</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={SECTION} style={{ borderColor: "#ffedd5" }}>
         <div className={SECTION_TITLE}><span>⚙️</span>Motor Konuşma Bozukluğu</div>
         
