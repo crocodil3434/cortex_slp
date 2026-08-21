@@ -28,13 +28,20 @@ export interface SensorPacket {
   mic_f0_hz: number;
   mic_voiced: boolean;
 
-  // Hayden meta
-  hayden_level: number;
-  session_phase: "istirahat" | "görev" | "toparlanma";
+  // Nöromotor Basamak & Durum Meta
+  hayden_level?: number;
+  clinical_step?: number;
+  session_phase?: "istirahat" | "görev" | "toparlanma";
+
+  // Sensör Füzyonu & Groping Analizi
+  is_calibrated?: boolean;
+  groping_detected?: boolean;
+  motor_acoustic_latency_ms?: number;
+  groping_episodes_count?: number;
 }
 
-// ── Sliding-window ring buffer — 100Hz akışı taşmadan tutar ─────────────────
-const RING_CAPACITY = 300; // 3 saniyelik pencere
+// ── Sliding-window ring buffer — Sıfır GC tahsisi ile 100Hz akışı yönetir ────
+const RING_CAPACITY = 800; // 8 saniyelik geniş bellek tamponu
 
 interface RingBuffer {
   data: SensorPacket[];
@@ -43,37 +50,35 @@ interface RingBuffer {
 }
 
 function createRing(): RingBuffer {
-  return { data: [], head: 0, size: 0 };
+  return { data: new Array(RING_CAPACITY), head: 0, size: 0 };
 }
 
 function pushRing(buf: RingBuffer, pkt: SensorPacket): RingBuffer {
-  const next = { ...buf };
-  if (next.size < RING_CAPACITY) {
-    next.data = [...next.data, pkt];
-    next.size++;
+  if (buf.size < RING_CAPACITY) {
+    buf.data[buf.size] = pkt;
+    buf.size++;
   } else {
-    const arr = [...next.data];
-    arr[next.head] = pkt;
-    next.data = arr;
-    next.head = (next.head + 1) % RING_CAPACITY;
+    buf.data[buf.head] = pkt;
+    buf.head = (buf.head + 1) % RING_CAPACITY;
   }
-  return next;
+  return buf;
 }
 
-/** Ring buffer'dan son N paketi kronolojik sırada döner. */
+/** Ring buffer'dan son N paketi kronolojik sırada döner (Sıfır bellek sızıntısı). */
 export function ringSlice(buf: RingBuffer, n: number): SensorPacket[] {
   if (buf.size === 0) return [];
   const count = Math.min(n, buf.size);
   const arr: SensorPacket[] = [];
   for (let i = 0; i < count; i++) {
     const idx = (buf.head + buf.size - count + i) % RING_CAPACITY;
-    arr.push(buf.data[idx]);
+    if (buf.data[idx]) {
+      arr.push(buf.data[idx]);
+    }
   }
   return arr;
 }
 
 // ── Hook dönüş değerleri ─────────────────────────────────────────────────────
-// ── Sayısal alanlar için ortalama alınabilir alan listesi ──────────────────
 const NUMERIC_KEYS: (keyof SensorPacket)[] = [
   "imu_pitch_deg", "imu_roll_deg", "imu_yaw_deg",
   "imu_accel_x", "imu_accel_y", "imu_accel_z",
@@ -82,10 +87,6 @@ const NUMERIC_KEYS: (keyof SensorPacket)[] = [
   "mic_rms_db", "mic_f0_hz",
 ];
 
-/**
- * Son N paketin sayısal ortalamalarını alarak "görüntüleme değeri" üretir.
- * KPI kartları bu değeri kullanır → titreme önlenir.
- */
 function computeDisplayPacket(packets: SensorPacket[]): SensorPacket | null {
   const valid = packets.filter((p) => p && typeof p.imu_pitch_deg === "number" && !isNaN(p.imu_pitch_deg));
   if (valid.length === 0) return null;
@@ -102,14 +103,14 @@ function computeDisplayPacket(packets: SensorPacket[]): SensorPacket | null {
 }
 
 export interface UseWebSocketReturn {
-  latest: SensorPacket | null;         // 30fps — grafikler için
-  displayLatest: SensorPacket | null;  // ~2Hz ortalama — KPI kartları için (titreme yok)
-  window: SensorPacket[];              // Son ~3 sn (ring buffer'dan)
+  latest: SensorPacket | null;
+  displayLatest: SensorPacket | null;
+  window: SensorPacket[];
   isConnected: boolean;
   isReconnecting: boolean;
   packetCount: number;
-  fps: number;                  // Gerçek zamanlı Hz ölçümü
-  latencyMs: number;            // Son paketin sunucu→client gecikmesi
+  fps: number;
+  latencyMs: number;
   error: string | null;
   connect: () => void;
   disconnect: () => void;
@@ -119,15 +120,9 @@ const WS_URL = "ws://localhost:8765/ws/stream";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_MS = 1000;
 
-/**
- * useM105Stream — 100Hz WebSocket akışını React tarafında sıfır darboğazla yönetir.
- *
- * Tasarım kararları:
- *  - Her paketi useState ile güncellemek 100fps'de render kasmasına yol açar.
- *    Bunun yerine useRef ring buffer paketleri toplar; React state
- *    yalnızca 30fps (requestAnimationFrame) ile "animation tick"te senkronize edilir.
- *  - Bağlantı kesilirse üstel geri çekilme (exponential backoff) ile yeniden bağlanır.
- */
+export const GRAPH_SYNC_INTERVAL_MS = 50;  // 50ms (20 FPS Sabit Akıcı Sync)
+export const SLIDING_WINDOW_SIZE = 350;     // 350 nokta (3.5 saniyelik EKG / Telemetri Monitör Penceresi)
+
 export function useM105Stream(haydenLevel: number = 4): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const ringRef = useRef<RingBuffer>(createRing());
@@ -137,7 +132,7 @@ export function useM105Stream(haydenLevel: number = 4): UseWebSocketReturn {
   const rafRef = useRef<number | null>(null);
   const fpsFrames = useRef<number[]>([]);
 
-  // React state — yalnızca RAF tick'inde güncellenir
+  // React state
   const [latest, setLatest] = useState<SensorPacket | null>(null);
   const [displayLatest, setDisplayLatest] = useState<SensorPacket | null>(null);
   const [windowPkts, setWindowPkts] = useState<SensorPacket[]>([]);
@@ -150,28 +145,28 @@ export function useM105Stream(haydenLevel: number = 4): UseWebSocketReturn {
 
   const packetCountRef = useRef(0);
   const latencyRef = useRef(0);
-  // displayLatest için 500ms throttle
+  const lastGraphUpdateRef = useRef(0);
   const lastDisplayUpdateRef = useRef(0);
 
-  // ── 30fps RAF sync loop ─────────────────────────────────────────────────
+  // ── Sıfır Darboğazlı RAF Senkronizasyonu ────────────────────────────────
   const startRafLoop = useCallback(() => {
     const tick = () => {
       const now = performance.now();
 
-      // Grafikler için 30fps güncelleme
-      setLatest(latestRef.current);
-      setWindowPkts(ringSlice(ringRef.current, 200));
-      setPacketCount(packetCountRef.current);
-      setLatencyMs(latencyRef.current);
+      if (now - lastGraphUpdateRef.current >= GRAPH_SYNC_INTERVAL_MS) {
+        lastGraphUpdateRef.current = now;
+        setLatest(latestRef.current);
+        setWindowPkts(ringSlice(ringRef.current, SLIDING_WINDOW_SIZE));
+        setPacketCount(packetCountRef.current);
+        setLatencyMs(latencyRef.current);
+      }
 
-      // KPI kartları için ~2Hz (500ms) ortalama → titreme önlenir
-      if (now - lastDisplayUpdateRef.current >= 500) {
+      if (now - lastDisplayUpdateRef.current >= 400) {
         lastDisplayUpdateRef.current = now;
-        const avgWindow = ringSlice(ringRef.current, 50); // Son 50 paket ≈ 500ms
+        const avgWindow = ringSlice(ringRef.current, 40);
         setDisplayLatest(computeDisplayPacket(avgWindow));
       }
 
-      // FPS hesapla (son 1 sn'deki frame sayısı)
       fpsFrames.current.push(now);
       fpsFrames.current = fpsFrames.current.filter((t) => now - t < 1000);
       setFps(fpsFrames.current.length);

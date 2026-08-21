@@ -150,25 +150,31 @@ export async function generateAssessmentSummary(
 ): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${apiKey}`;
 
-  const prompt = `Sen kıdemli bir medikal dil ve konuşma patoloğusun.
-Aşağıdaki değerlendirme verilerinden kapsamlı bir klinik değerlendirme özeti oluştur.
-Danışan yaşı: ${clientAge}
+  const prompt = `Sen kıdemli bir klinik Dil ve Konuşma Terapistisin (SLP).
+Aşağıdaki değerlendirme verilerini analiz ederek RCSLT ve ASHA klinik standartlarında profesyonel bir Değerlendirme Raporu Özeti oluştur.
+Danışan yaşı: ${clientAge || "Belirtilmemiş"}
 
-Değerlendirme verileri:
+Değerlendirme Verileri:
 ${JSON.stringify(assessmentData, null, 2)}
 
-Lütfen RCSLT standartlarında bir klinik özet yaz:
-1. Yönetici Özet (2-3 cümle)
-2. Ana Bulgular (madde madde)
-3. Güçlü Yanlar
-4. Terapi Öncelikleri
-5. Öneriler
+ÇOK ÖNEMLİ KLİNİK KURALLAR:
+1. SADECE yukarıdaki verilerde doldurulmuş olan klinik alanlar hakkında yorum yap.
+2. DİKKAT: Eğer bu değerlendirme bir Artikülasyon, Fonoloji veya Motor Konuşma değerlendirmesi ise; tanı ve özet içeriği sadece "Sesletim (Artikülasyon) Bozukluğu", "Fonolojik Bozukluk", "Motor Konuşma Etkilenmesi / Dizartri / Apraksi" veya "Gelişimsel Dil Gecikmesi" çerçevesinde kalmalıdır.
+3. KESİNLİKLE YASAK: Yetişkin nörolojik dil bozuklukları olan Afazi (Aphasia), Aleksi, Agrafi veya Wernicke/Broca gibi kortikal sendromları bu rapora KESİNLİKLE KATMAMA (yalnızca açıkça Aphasia formu doldurulmuşsa dahil edilebilir).
+4. Türkçe 21 ünsüz ve 8 ünlü fonem analizlerini, fonolojik süreçleri ve anlaşılırlık oranlarını net olarak belirt.
 
-Türkçe, profesyonel ve kapsamlı olsun. Hasta kimliğine dair veri içerme.`;
+Rapor Formatı:
+1. Yönetici Klinik Özet (2-3 profesyonel cümle)
+2. Temel Klinik Bulgular (Artikülatör, Fonolojik, Motor veya Dil bulguları madde madde)
+3. Güçlü Yönler & Stimülabilite (Uyarılabilirlik Potansiyeli)
+4. SMART Terapi Öncelikleri (Kısa ve Uzun Vadeli Hedef Önerileri)
+5. Klinik Öneriler & Seans Sıklığı
+
+Türkçe, tıp/klinik terminolojisine uygun ve danışanın gizliliğini koruyacak şekilde yaz.`;
 
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 1500 },
+    generationConfig: { temperature: 0.25, maxOutputTokens: 1600 },
   };
 
   const response = await fetch(url, {

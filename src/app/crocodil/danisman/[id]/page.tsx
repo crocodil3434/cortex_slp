@@ -19,6 +19,7 @@ import { ClientGoalSummary } from "@/components/crocodil/ClientGoalSummary";
 import { FileUploader, getFileIcon, formatBytes } from "@/components/crocodil/FileUploader";
 import { useToast } from "@/components/crocodil/Toast";
 import { useConfirm } from "@/components/crocodil/ConfirmModal";
+import { ClinicalKinematicsForm } from "@/components/crocodil/assessment/ClinicalKinematicsForm";
 
 const COLOR_PALETTE = ["#0d9488","#3b82f6","#a855f7","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899"];
 function getAvatarColor(id: string) {
@@ -26,7 +27,7 @@ function getAvatarColor(id: string) {
   return COLOR_PALETTE[i % COLOR_PALETTE.length];
 }
 
-type TabKey = "genel" | "seanslar" | "degerlendirmeler" | "belgeler";
+type TabKey = "genel" | "seanslar" | "degerlendirmeler" | "kinematik" | "belgeler";
 
 export default function DanismanDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -45,6 +46,15 @@ export default function DanismanDetailPage() {
     if (!id) return;
     try {
       setFiles(await getClientFiles(id as string));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const refreshGoals = async () => {
+    if (!id) return;
+    try {
+      setGoals(await getGoals(id as string));
     } catch (e) {
       console.error(e);
     }
@@ -103,6 +113,7 @@ export default function DanismanDetailPage() {
     { key: "genel", label: "Genel Bakış", icon: User },
     { key: "seanslar", label: "Seanslar", icon: Activity },
     { key: "degerlendirmeler", label: "Değerlendirmeler", icon: ClipboardList },
+    { key: "kinematik", label: "Kinematik Değerlendirme", icon: Stethoscope },
     { key: "belgeler", label: "Belgeler", icon: FileText },
   ];
 
@@ -149,7 +160,7 @@ export default function DanismanDetailPage() {
               <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white shadow-sm transition-all hover:opacity-90"
                 style={{ background: "linear-gradient(135deg, #0d9488, #134e4a)", border: "1px solid #14b8a6" }}>
                 <span className="text-sm">📡</span>
-                Modül 105: PROMPT İstasyonu
+                Modül 105
               </button>
             </Link>
             <Link href={`/crocodil/degerlendirme/${id}`}>
@@ -259,7 +270,7 @@ export default function DanismanDetailPage() {
 
             {/* Hedef Özeti */}
             <div className="md:col-span-2">
-              <ClientGoalSummary goals={goals} />
+              <ClientGoalSummary goals={goals} clientId={id as string} onRefresh={refreshGoals} />
             </div>
 
             {/* Notlar */}
@@ -359,7 +370,7 @@ export default function DanismanDetailPage() {
                           <span className="text-xs font-semibold text-purple-600">Değerlendirme</span>
                           {a.motorSpeech?.m105SessionId && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 border border-teal-200">
-                              📡 Modül 105 PROMPT #{a.motorSpeech.m105SessionId}
+                              📡 Modül 105 #{a.motorSpeech.m105SessionId}
                             </span>
                           )}
                         </div>
@@ -428,6 +439,13 @@ export default function DanismanDetailPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Kinematik ve Nöromotor Değerlendirme Formu Sekmesi */}
+        {activeTab === "kinematik" && (
+          <div className="max-w-4xl mx-auto">
+            <ClinicalKinematicsForm clientId={client.id} client={client} />
           </div>
         )}
 

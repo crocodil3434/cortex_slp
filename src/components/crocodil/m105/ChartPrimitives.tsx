@@ -1,11 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useMemo } from "react";
-import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ReferenceLine,
-} from "recharts";
+import React, { useRef, useEffect } from "react";
 import type { SensorPacket } from "@/lib/crocodil/useM105Stream";
 
 // ── Ortak tasarım token'ları ─────────────────────────────────────────────────
@@ -19,7 +14,7 @@ const C = {
   purple:  "#a855f7",
   text:    "rgba(255,255,255,0.85)",
   muted:   "rgba(255,255,255,0.35)",
-  grid:    "rgba(255,255,255,0.06)",
+  grid:    "rgba(255,255,255,0.05)",
   surface: "rgba(255,255,255,0.04)",
   border:  "rgba(13,148,136,0.25)",
 };
@@ -56,61 +51,208 @@ export function KpiCard({
   );
 }
 
-// ── Gerçek Zamanlı Alan Grafiği (Recharts AreaChart) ────────────────────────
-export function LiveAreaChart({
-  data, dataKey, color, label, min, max, domain,
+// ── Tıbbi Sınıf Ultra Keskin (HiDPI) 60 FPS Donanım Hızlandırmalı Oscilloscope ─
+export function LiveCanvasChart({
+  data,
+  dataKey,
+  color = "#14b8a6",
+  min,
+  max,
+  height = 150,
   referenceLines,
 }: {
   data: SensorPacket[];
   dataKey: keyof SensorPacket;
   color: string;
-  label: string;
+  label?: string;
   min?: number;
   max?: number;
+  height?: number;
   domain?: [number | "auto", number | "auto"];
+  animationDuration?: number;
   referenceLines?: { y: number; label?: string; color?: string }[];
 }) {
-  const pts = useMemo(() => {
-    return data.map((p, i) => ({
-      t: i,
-      v: typeof p[dataKey] === "number" ? (p[dataKey] as number) : 0,
-    }));
-  }, [data, dataKey]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Gerçek fiziksel piksel boyutlarını hesapla (HiDPI Retina / 4K Keskinliği)
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const clientW = container.clientWidth || 600;
+    const clientH = height || container.clientHeight || 150;
+
+    const physicalW = Math.floor(clientW * dpr);
+    const physicalH = Math.floor(clientH * dpr);
+
+    if (canvas.width !== physicalW || canvas.height !== physicalH) {
+      canvas.width = physicalW;
+      canvas.height = physicalH;
+      canvas.style.width = `${clientW}px`;
+      canvas.style.height = `${clientH}px`;
+    }
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, clientW, clientH);
+
+    // 1. Tıbbi EKG Arka Plan Izgarası (Hafif ve Net)
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+    ctx.lineWidth = 1;
+    const gridCols = 8;
+    const gridRows = 4;
+    for (let c = 1; c < gridCols; c++) {
+      const x = Math.floor((clientW / gridCols) * c);
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, clientH);
+      ctx.stroke();
+    }
+    for (let r = 1; r < gridRows; r++) {
+      const y = Math.floor((clientH / gridRows) * r);
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(clientW, y + 0.5);
+      ctx.stroke();
+    }
+
+    // Değerleri çıkar
+    const pts = data.map((p) => {
+      const val = p ? Number(p[dataKey]) : 0;
+      return Number.isFinite(val) ? val : 0;
+    });
+
+    if (pts.length === 0) {
+      ctx.restore();
+      return;
+    }
+
+    // Min ve Max sınırları
+    let autoMin = min !== undefined ? min : Math.min(...pts);
+    let autoMax = max !== undefined ? max : Math.max(...pts);
+    if (autoMin === autoMax) {
+      autoMin -= 1;
+      autoMax += 1;
+    }
+    const range = autoMax - autoMin || 1;
+
+    const getY = (val: number) => {
+      const clamped = Math.max(autoMin, Math.min(autoMax, val));
+      const norm = (clamped - autoMin) / range;
+      const pad = 10;
+      return clientH - pad - norm * (clientH - pad * 2);
+    };
+
+    // 2. Referans Çizgileri
+    if (referenceLines) {
+      for (const ref of referenceLines) {
+        const refY = getY(ref.y);
+        ctx.strokeStyle = ref.color || "rgba(245, 158, 11, 0.35)";
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(0, refY + 0.5);
+        ctx.lineTo(clientW, refY + 0.5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // 3. Y Ekseni Kılavuz Değerleri (Net Monospace)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+    ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(`${autoMax.toFixed(1)}`, clientW - 8, 12);
+    ctx.fillText(`${((autoMax + autoMin) / 2).toFixed(1)}`, clientW - 8, clientH / 2 + 3);
+    ctx.fillText(`${autoMin.toFixed(1)}`, clientW - 8, clientH - 4);
+
+    // 4. Alan Doldurma (Ultra Hafif Saydam Degrade)
+    const stepX = clientW / Math.max(1, pts.length - 1);
+    const grad = ctx.createLinearGradient(0, 0, 0, clientH);
+    grad.addColorStop(0, `${color}30`);
+    grad.addColorStop(0.8, `${color}05`);
+    grad.addColorStop(1, "transparent");
+
+    ctx.beginPath();
+    ctx.moveTo(0, clientH);
+    for (let i = 0; i < pts.length; i++) {
+      const x = i * stepX;
+      const y = getY(pts[i]);
+      if (i === 0) ctx.lineTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineTo((pts.length - 1) * stepX, clientH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 5. Ana Keskin Dalga Çizgisi (Net, Bulanıklıktan Arındırılmış 1.8px Vektör)
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.8;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 2; // Bulanıklık yapmayan hafif net ışıma
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const x = i * stepX;
+      const y = getY(pts[i]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // 6. Öncü Tarama Noktası (Canlı Telemetri Başı)
+    if (pts.length > 0) {
+      const lastX = (pts.length - 1) * stepX;
+      const lastY = getY(pts[pts.length - 1]);
+
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = `${color}60`;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 2, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }, [data, dataKey, color, min, max, height, referenceLines]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        {label}
-      </span>
-      <ResponsiveContainer width="100%" height={68}>
-        <AreaChart data={pts} margin={{ top: 2, right: 0, left: -28, bottom: 0 }}>
-          <defs>
-            <linearGradient id={`grad-${dataKey as string}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={color} stopOpacity={0.35} />
-              <stop offset="95%" stopColor={color} stopOpacity={0.0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
-          <YAxis domain={domain ?? [min ?? "auto", max ?? "auto"]} tick={{ fontSize: 8, fill: C.muted }} />
-          <Tooltip
-            contentStyle={{ background: "#0f2027", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
-            labelStyle={{ color: C.muted }}
-            itemStyle={{ color }}
-            formatter={(v: unknown) => [(v as number).toFixed(2), label] as [string, string]}
-            labelFormatter={() => ""}
-          />
-          {referenceLines?.map((rl, i) => (
-            <ReferenceLine key={i} y={rl.y} stroke={rl.color ?? C.amber} strokeDasharray="3 3" />
-          ))}
-          <Area
-            type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
-            fill={`url(#grad-${dataKey as string})`} dot={false} isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+    <div
+      ref={containerRef}
+      style={{
+        width: "100%",
+        height: height,
+        position: "relative",
+        borderRadius: 10,
+        overflow: "hidden",
+        background: "rgba(0,0,0,0.35)",
+        border: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: "block",
+          width: "100%",
+          height: `${height}px`,
+        }}
+      />
     </div>
   );
 }
+
+// Geriye dönük tam uyumluluk için alias
+export const LiveAreaChart = LiveCanvasChart;
 
 // ── İkili sEMG Bar Grafiği ───────────────────────────────────────────────────
 export function DualSEMGBar({ left, right, asymmetry }: {

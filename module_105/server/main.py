@@ -31,6 +31,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from mock_generator import MockDataGenerator, HAYDEN_LEVELS
+from sensor_fusion import SensorFusionEngine
+
+# Global Sensör Füzyon Motoru
+fusion_engine = SensorFusionEngine()
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -46,7 +50,7 @@ log = logging.getLogger("m105.server")
 from collections import deque
 
 # ---------------------------------------------------------------------------
-# Bağlantı Yöneticisi (100% Gerçek ESP32 Donanım Akışı)
+# Bağlantı Yöneticisi (100% Gerçek ESP32 Donanım Akışı & Sensör Füzyonu)
 # ---------------------------------------------------------------------------
 
 class ConnectionManager:
@@ -68,15 +72,16 @@ class ConnectionManager:
         return items[-count:] if len(items) > count else items
 
     async def broadcast_hardware_packet(self, sender_id: str, packet: dict):
-        """ESP32'den gelen donanım verisini ring buffer'a kaydet ve tüm tarayıcılara ilet."""
-        self._latest_hardware_packet = packet
-        self.hardware_buffer.append(packet)
+        """ESP32'den gelen donanım verisini füzyonla, ring buffer'a kaydet ve tüm tarayıcılara ilet."""
+        fused_packet = fusion_engine.process_packet(packet)
+        self._latest_hardware_packet = fused_packet
+        self.hardware_buffer.append(fused_packet)
 
         disconnected = []
         for cid, entry in list(self._clients.items()):
             if cid != sender_id:
                 try:
-                    await entry["ws"].send_text(json.dumps(packet, ensure_ascii=False))
+                    await entry["ws"].send_text(json.dumps(fused_packet, ensure_ascii=False))
                 except Exception:
                     disconnected.append(cid)
         for cid in disconnected:
@@ -218,6 +223,39 @@ async def stop_test():
         "packet_count": len(manager.hardware_buffer),
         "timestamp": int(time.time() * 1000),
     })
+
+
+@app.post("/api/calibrate_mpu", tags=["Kalibrasyon"])
+async def calibrate_mpu():
+    """MPU6050 çene açısını o anki ham açıya göre sıfırlar (Tare/Zero)."""
+    latest = manager._latest_hardware_packet or {}
+    raw_pitch = float(latest.get("raw_pitch_deg", latest.get("imu_pitch_deg", 0.0)))
+    raw_roll  = float(latest.get("raw_roll_deg", latest.get("imu_roll_deg", 0.0)))
+    raw_yaw   = float(latest.get("raw_yaw_deg", latest.get("imu_yaw_deg", 0.0)))
+    fusion_engine.calibrate_mpu(raw_pitch, raw_roll, raw_yaw)
+    log.info(f"[Kalibrasyon] Çene Sıfırlandı -> Ofset Pitch: {fusion_engine.offset_pitch:.2f}°")
+    return JSONResponse({
+        "success": True,
+        "status": "mpu_calibrated",
+        "offset_pitch": fusion_engine.offset_pitch,
+        "offset_roll": fusion_engine.offset_roll,
+        "offset_yaw": fusion_engine.offset_yaw,
+        "timestamp": int(time.time() * 1000),
+    })
+
+
+@app.post("/api/fusion/start", tags=["C Grubu Füzyon Kaydı"])
+async def start_fusion():
+    """Basamak VI & VII için çoklu sensör füzyon kayıt oturumunu başlatır."""
+    fusion_engine.start_fusion_recording()
+    return JSONResponse({"success": True, "status": "fusion_recording_started", "timestamp": int(time.time() * 1000)})
+
+
+@app.post("/api/fusion/stop", tags=["C Grubu Füzyon Kaydı"])
+async def stop_fusion():
+    """Füzyon kayıt oturumunu durdurur ve özet analiz raporunu döner."""
+    report = fusion_engine.stop_fusion_recording()
+    return JSONResponse({"success": True, "report": report})
 
 
 from pydantic import BaseModel
@@ -531,6 +569,23 @@ async def websocket_stream(ws: WebSocket):
                 # Eğer gelen mesaj sensör veri paketi ise (ESP32 gönderiyor)
                 if "imu_pitch_deg" in msg or "semg_left_uv" in msg or "semg_raw" in msg:
                     await manager.broadcast_hardware_packet(client_id, msg)
+                elif msg.get("command") == "calibrate_mpu" or msg.get("cmd") == "calibrate_mpu":
+                    latest = manager._latest_hardware_packet or {}
+                    raw_pitch = float(latest.get("raw_pitch_deg", latest.get("imu_pitch_deg", 0.0)))
+                    raw_roll  = float(latest.get("raw_roll_deg", latest.get("imu_roll_deg", 0.0)))
+                    raw_yaw   = float(latest.get("raw_yaw_deg", latest.get("imu_yaw_deg", 0.0)))
+                    fusion_engine.calibrate_mpu(raw_pitch, raw_roll, raw_yaw)
+                    await ws.send_text(json.dumps({
+                        "type": "ack",
+                        "cmd": "calibrate_mpu",
+                        "offset_pitch": fusion_engine.offset_pitch
+                    }))
+                elif msg.get("cmd") == "start_fusion" or msg.get("command") == "start_fusion":
+                    fusion_engine.start_fusion_recording()
+                    await ws.send_text(json.dumps({"type": "ack", "cmd": "start_fusion"}))
+                elif msg.get("cmd") == "stop_fusion" or msg.get("command") == "stop_fusion":
+                    rep = fusion_engine.stop_fusion_recording()
+                    await ws.send_text(json.dumps({"type": "fusion_report", "report": rep}))
                 else:
                     log.debug(f"Client {client_id} → {msg}")
             except asyncio.TimeoutError:

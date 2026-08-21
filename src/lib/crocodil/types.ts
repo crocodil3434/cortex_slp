@@ -148,6 +148,7 @@ export interface TestScore {
 
 export interface ArticulationAssessment {
   soundInventory: SoundInventoryItem[];
+  vowelInventory?: SoundInventoryItem[];
   tests: TestScore[];
   phonologicalProcesses: string[];
   intelligibilityFamiliar?: number; // %
@@ -159,10 +160,11 @@ export interface ArticulationAssessment {
 export interface SoundInventoryItem {
   sound: string; // IPA sembolü
   status: "correct" | "error" | "absent";
-  errorType?: "substitution" | "omission" | "distortion" | "addition";
+  errorType?: "substitution" | "omission" | "distortion" | "addition" | "neutralization" | "lengthening";
   errorPosition?: ("initial" | "medial" | "final")[];
   substitution?: string;
   stimulable?: boolean;
+  notes?: string;
 }
 
 export interface FluencyAssessment {
@@ -318,8 +320,33 @@ export interface AACAssessment {
 }
 
 export interface MotorSpeechAssessment {
-  // Oral motor
+  // Tanı Kategorisi
   diagnosisType?: string;
+  
+  // Dizartri
+  dysarthriaType?: string;
+  intelligibilityEffect?: SeverityLevel | null;
+  fda2Score?: number;
+  fda2Notes?: string;
+  
+  // Apraksi (CAS / AOS)
+  apraxiaType?: string;
+  asrsScore?: number;
+  apraxiaFeatures?: string[];
+  apraxiaSeverity?: SeverityLevel | null;
+  
+  // Normal Gelişimde Motor Konuşma Etkilenmesi (Gelişimsel Koordinasyon Güçlüğü)
+  typicalMotorFeatures?: string[];
+  typicalMotorNotes?: string;
+  
+  // 5 Motor Konuşma Alt Sistemi
+  respirationSupport?: "adequate" | "reduced" | "impaired";
+  phonationQuality?: "normal" | "breathy" | "strained" | "wet" | "tremor";
+  resonanceFunction?: "normal" | "hypernasal" | "hyponasal" | "nasal_emission" | "cul_de_sac";
+  articulationPrecision?: "normal" | "slurred" | "distorted" | "inconsistent";
+  prosodyControl?: "normal" | "monotone" | "excess_equal_stress" | "rate_irregular";
+
+  // Oral Motor & DDK
   lipStructure?: string;
   tongueStructure?: string;
   palateFunctionNotes?: string;
@@ -327,15 +354,8 @@ export interface MotorSpeechAssessment {
   ddkAccuracy?: "normal" | "reduced" | "impaired";
   ddkAmr?: number;
   ddkSmr?: number;
-  fda2Score?: number;
-  // Dizartri
-  dysarthriaType?: string;
-  intelligibilityEffect?: SeverityLevel | null;
-  fda2Notes?: string;
-  // Apraksi
-  asrsScore?: number;
-  apraxiaFeatures?: string[];
-  apraxiaSeverity?: SeverityLevel | null;
+  ddkRegularity?: "regular" | "irregular" | "groping";
+  
   // Modül 105 PROMPT İstasyonu Entegrasyonu
   m105SessionId?: number;
   m105Timestamp?: string;

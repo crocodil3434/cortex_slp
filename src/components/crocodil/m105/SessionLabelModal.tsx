@@ -97,8 +97,8 @@ function zLabel(z: number | null): string {
   return "Normal";
 }
 
-// ── Hayden Basamak Meta ───────────────────────────────────────────────────
-const HAYDEN_META: Record<number, { label: string; icon: string; metricKey: string }> = {
+// ── Klinik Fonksiyon Basamakları Meta ──────────────────────────────────────
+const CLINICAL_STEP_META: Record<number, { label: string; icon: string; metricKey: string }> = {
   1: { label: "Respirasyon",  icon: "🫁", metricKey: "l1_solunum_z" },
   2: { label: "Fonasyon",     icon: "🎵", metricKey: "l2_f0_z" },
   3: { label: "Rezonans",     icon: "🔊", metricKey: "l3_rezonans_z" },
@@ -137,7 +137,7 @@ function InstrumentalDataSection({
       {hasData ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {[1, 2, 3, 4, 5, 6, 7].map((lvl) => {
-            const meta = HAYDEN_META[lvl];
+            const meta = CLINICAL_STEP_META[lvl];
             const z = zScores[meta.metricKey] ?? null;
             const color = zColor(z);
             const barWidth = z !== null

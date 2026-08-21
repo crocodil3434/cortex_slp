@@ -51,3 +51,5 @@ google_credentials.md
 module_105/server/.env
 *.html
 *.txt
+__pycache__/
+*.pyc

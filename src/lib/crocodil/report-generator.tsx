@@ -194,20 +194,81 @@ function AssessmentReportContent({ client, assessment, settings }: {
         </View>
       )}
 
-      {/* Artikülasyon */}
+      {/* Artikülasyon & Fonoloji */}
       {assessment.articulation && cats.includes("articulation") && (
         <View style={s.section}>
-          <SectionTitle>Artikülasyon Değerlendirmesi</SectionTitle>
+          <SectionTitle>Artikülasyon & Fonoloji Değerlendirmesi</SectionTitle>
           {assessment.articulation.intelligibilityFamiliar != null && (
             <Row label="Anlaşılırlık (Tanıdık)" value={`%${assessment.articulation.intelligibilityFamiliar}`} />
           )}
           {assessment.articulation.intelligibilityUnfamiliar != null && (
             <Row label="Anlaşılırlık (Yabancı)" value={`%${assessment.articulation.intelligibilityUnfamiliar}`} />
           )}
+          {assessment.articulation.soundInventory?.filter((s: any) => s.status === "error").length > 0 && (
+            <Row
+              label="Hatalı Ünsüzler"
+              value={assessment.articulation.soundInventory
+                .filter((s: any) => s.status === "error")
+                .map((s: any) => `/${s.sound}/${s.substitution ? `→/${s.substitution}/` : ""}`)
+                .join(", ")}
+            />
+          )}
+          {assessment.articulation.vowelInventory?.filter((v: any) => v.status === "error").length > 0 && (
+            <Row
+              label="Ünlü Bozulmaları"
+              value={assessment.articulation.vowelInventory
+                .filter((v: any) => v.status === "error")
+                .map((v: any) => `/${v.sound}/ (${v.errorType || "bozulma"})`)
+                .join(", ")}
+            />
+          )}
           {assessment.articulation.phonologicalProcesses?.length > 0 && (
             <Row label="Fonolojik Süreçler" value={assessment.articulation.phonologicalProcesses.join(", ")} />
           )}
+          {assessment.articulation.stimulabilityNotes && <Row label="Stimülabilite" value={assessment.articulation.stimulabilityNotes} />}
           {assessment.articulation.notes && <Text style={s.paragraph}>{assessment.articulation.notes}</Text>}
+        </View>
+      )}
+
+      {/* Motor Konuşma Değerlendirmesi */}
+      {assessment.motorSpeech && cats.includes("motorSpeech") && (
+        <View style={s.section}>
+          <SectionTitle>Motor Konuşma Değerlendirmesi</SectionTitle>
+          {assessment.motorSpeech.diagnosisType && (
+            <Row label="Tanı / Profil" value={assessment.motorSpeech.diagnosisType} />
+          )}
+          {assessment.motorSpeech.dysarthriaType && (
+            <Row label="Dizartri Alt Tipi" value={assessment.motorSpeech.dysarthriaType} />
+          )}
+          {assessment.motorSpeech.apraxiaType && (
+            <Row label="Apraksi Sınıfı" value={assessment.motorSpeech.apraxiaType} />
+          )}
+          {assessment.motorSpeech.apraxiaFeatures?.length > 0 && (
+            <Row label="Apraktik Bulgular" value={assessment.motorSpeech.apraxiaFeatures.join(", ")} />
+          )}
+          {assessment.motorSpeech.typicalMotorFeatures?.length > 0 && (
+            <Row label="Gelişimsel Motor Etkilenme" value={assessment.motorSpeech.typicalMotorFeatures.join(", ")} />
+          )}
+          {(assessment.motorSpeech.ddkAmr != null || assessment.motorSpeech.ddkSmr != null) && (
+            <Row
+              label="Diadokokinetik (DDK)"
+              value={`AMR: ${assessment.motorSpeech.ddkAmr ?? "—"} Hz | SMR: ${assessment.motorSpeech.ddkSmr ?? "—"} Hz (${assessment.motorSpeech.ddkRegularity || "düzenli"})`}
+            />
+          )}
+          <Row
+            label="5 Alt Sistem Profili"
+            value={`Solunum: ${assessment.motorSpeech.respirationSupport || "normal"} | Fonasyon: ${assessment.motorSpeech.phonationQuality || "normal"} | Rezonans: ${assessment.motorSpeech.resonanceFunction || "normal"} | Artikülasyon: ${assessment.motorSpeech.articulationPrecision || "normal"} | Prosodi: ${assessment.motorSpeech.prosodyControl || "normal"}`}
+          />
+          {assessment.motorSpeech.m105SessionId && (
+            <Row
+              label="Modül 105 Sensör Ölçümü"
+              value={`Çene ROM: ${assessment.motorSpeech.mandibularRomDeg ?? "—"}° | Masseter Asimetri: %${assessment.motorSpeech.semgAsymmetryPct ?? "—"} | Solunum: ${assessment.motorSpeech.respirationRateBpm ?? "—"} bpm`}
+            />
+          )}
+          {assessment.motorSpeech.typicalMotorNotes && (
+            <Text style={s.paragraph}>{assessment.motorSpeech.typicalMotorNotes}</Text>
+          )}
+          {assessment.motorSpeech.notes && <Text style={s.paragraph}>{assessment.motorSpeech.notes}</Text>}
         </View>
       )}
 
@@ -218,10 +279,8 @@ function AssessmentReportContent({ client, assessment, settings }: {
           {assessment.voice.grbasG != null && (
             <Row label="GRBAS Genel" value={`G:${assessment.voice.grbasG} R:${assessment.voice.grbasR} B:${assessment.voice.grbasB} A:${assessment.voice.grbasA} S:${assessment.voice.grbasS}`} />
           )}
-          {assessment.voice.capevOverallSeverity != null && <Row label="CAPE-V Genel Şiddet" value={`${assessment.voice.capevOverallSeverity}/100`} />}
-          {assessment.voice.vhi10Total != null && <Row label="VHI-10 Toplam" value={assessment.voice.vhi10Total} />}
           {assessment.voice.f0 != null && <Row label="Temel Frekans (F0)" value={`${assessment.voice.f0} Hz`} />}
-          {assessment.voice.mpt != null && <Row label="MPT" value={`${assessment.voice.mpt} sn`} />}
+          {assessment.voice.mpt != null && <Row label="Maksimum Fonasyon Süresi" value={`${assessment.voice.mpt} sn`} />}
           {assessment.voice.notes && <Text style={s.paragraph}>{assessment.voice.notes}</Text>}
         </View>
       )}

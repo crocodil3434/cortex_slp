@@ -168,35 +168,50 @@ function ViewSelector({ mode, onChange }: { mode: ViewMode; onChange: (v: ViewMo
   );
 }
 
-// ── Hayden seviyesi seçici (header mini) ─────────────────────────────────────
-const LEVELS = [1, 2, 3, 4, 5, 6, 7];
-const LEVEL_COLORS: Record<number, string> = {
-  1: "#22c55e", 2: "#0d9488", 3: "#3b82f6", 4: "#f59e0b",
-  5: "#a855f7", 6: "#ec4899", 7: "#f97316",
-};
+// ── Evrensel Nöromotor Basamak Seçici (Header Dropdown) ───────────────────────
+const STEP_OPTIONS = [
+  { id: 0, label: "Yapısal İstirahat Analizi" },
+  { id: 1, label: "Basamak I: Temel Tonus & Postür" },
+  { id: 2, label: "Basamak II: Vokal Uzama & Rezonans" },
+  { id: 3, label: "Basamak III: Mandibular Kinematik" },
+  { id: 4, label: "Basamak IV: Labio-Fasial Aktivasyon" },
+  { id: 5, label: "Basamak V: Lingual Artikülasyon" },
+  { id: 6, label: "Basamak VI: Koartikülasyon (Groping)" },
+  { id: 7, label: "Basamak VII: Vokal Melodi & Prosodi" },
+];
 
-function HaydenLevelPicker({
+function ClinicalStepDropdown({
   active, onChange,
 }: { active: number; onChange: (l: number) => void }) {
   return (
-    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-      {LEVELS.map((l) => (
-        <button
-          key={l}
-          onClick={() => onChange(l)}
-          title={`L${l}`}
-          style={{
-            width: 28, height: 28, borderRadius: 8,
-            fontSize: 10, fontWeight: 800, cursor: "pointer",
-            flexShrink: 0,
-            border: `1.5px solid ${active === l ? LEVEL_COLORS[l] : "rgba(255,255,255,0.1)"}`,
-            background: active === l ? `${LEVEL_COLORS[l]}20` : "transparent",
-            color: active === l ? LEVEL_COLORS[l] : "rgba(255,255,255,0.3)",
-          }}
-        >
-          {l}
-        </button>
-      ))}
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6,
+      padding: "4px 10px", borderRadius: 10,
+      background: "rgba(255,255,255,0.04)",
+      border: "1px solid rgba(255,255,255,0.1)",
+    }}>
+      <span style={{ fontSize: 10, fontWeight: 800, color: "#14b8a6", textTransform: "uppercase" }}>
+        Basamak:
+      </span>
+      <select
+        value={active}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "white",
+          fontSize: 11,
+          fontWeight: 700,
+          outline: "none",
+          cursor: "pointer",
+        }}
+      >
+        {STEP_OPTIONS.map((opt) => (
+          <option key={opt.id} value={opt.id} style={{ background: "#0b1a1a", color: "white" }}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -241,7 +256,7 @@ function Modul105Content() {
 
   // Danışan listesi ve seçili danışanı yükle
   useEffect(() => {
-    document.title = "Modül 105 — PROMPT Kinematik & Akustik İstasyonu · Crocodil";
+    document.title = "Modül 105 · Nöromotor Kinematik İstasyonu · Crocodil";
     const loadClients = async () => {
       try {
         const list = await getClients();
@@ -263,6 +278,48 @@ function Modul105Content() {
   const [isTestActive, setIsTestActive] = useState(false);
   const [testSeconds, setTestSeconds] = useState(0);
   const testTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // C Grubu Çoklu Sensör Füzyon Kaydı Durumları
+  const [isFusionRecording, setIsFusionRecording] = useState(false);
+  const [fusionReport, setFusionReport] = useState<any>(null);
+
+  // MPU6050 Çeneyi Kalibre Et (Sıfırla)
+  const handleCalibrateMpu = async () => {
+    try {
+      const res = await fetch("http://localhost:8765/api/calibrate_mpu", { method: "POST" });
+      const json = await res.json();
+      toastSuccess(`Çene açısı sıfırlandı (Ofset: ${json.offset_pitch?.toFixed(1) || 0}°)`);
+    } catch {
+      toastError("Kalibrasyon komutu sunucuya iletilemedi.");
+    }
+  };
+
+  // Füzyon Kaydını Başlat
+  const handleStartFusion = async () => {
+    setIsFusionRecording(true);
+    setFusionReport(null);
+    try {
+      await fetch("http://localhost:8765/api/fusion/start", { method: "POST" });
+      toastSuccess("Çoklu Sensör Füzyon Kaydı Başlatıldı!");
+    } catch {
+      toastError("Füzyon kaydı başlatılamadı.");
+    }
+  };
+
+  // Füzyon Kaydını Bitir
+  const handleStopFusion = async () => {
+    setIsFusionRecording(false);
+    try {
+      const res = await fetch("http://localhost:8765/api/fusion/stop", { method: "POST" });
+      const json = await res.json();
+      if (json.report) {
+        setFusionReport(json.report);
+        toastSuccess(`Füzyon Analizi Tamamlandı! (${json.report.packet_count} paket)`);
+      }
+    } catch {
+      toastError("Füzyon kaydı sonlandırılamadı.");
+    }
+  };
 
   // Kronometre sayacı
   useEffect(() => {
@@ -474,7 +531,7 @@ function Modul105Content() {
                 Modül 105
               </div>
               <div style={{ fontSize: 8, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                PROMPT Kinematik · Akustik
+                Nöromotor Kinematik & Akustik
               </div>
             </div>
           </div>
@@ -513,9 +570,9 @@ function Modul105Content() {
 
           <div style={{ flex: 1 }} />
 
-          {/* Hayden Seçici */}
+          {/* Nöromotor Basamak Seçici */}
           {viewMode === "clinician" && (
-            <HaydenLevelPicker active={activeLevel} onChange={setActiveLevel} />
+            <ClinicalStepDropdown active={activeLevel} onChange={setActiveLevel} />
           )}
 
           {/* Bağlantı Durum */}
@@ -754,7 +811,18 @@ function Modul105Content() {
                   transition={{ duration: 0.25 }}
                   style={{ height: "100%" }}
                 >
-                  <CliniciansView latest={latest} displayLatest={displayLatest} window={windowPkts} />
+                  <CliniciansView
+                    latest={latest}
+                    displayLatest={displayLatest}
+                    window={windowPkts}
+                    selectedLevel={activeLevel}
+                    onSelectLevel={setActiveLevel}
+                    onCalibrateMpu={handleCalibrateMpu}
+                    onStartFusion={handleStartFusion}
+                    onStopFusion={handleStopFusion}
+                    isFusionRecording={isFusionRecording}
+                    fusionReport={fusionReport}
+                  />
                 </motion.div>
               )}
 

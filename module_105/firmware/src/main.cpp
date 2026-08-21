@@ -1,66 +1,49 @@
-/**
- * ============================================================================
- * PROMPT Kinematik & Akustik İstasyonu — Modül 105
- * ESP32 C++ (FreeRTOS Dual-Core) Firmware
- * ============================================================================
- * 
- * Donanım Bağlantıları:
- * ----------------------------------------------------------------------------
- * 1. MPU6050 (I2C):
- *    - VCC  -> 3.3V
- *    - GND  -> GND
- *    - SDA  -> GPIO 21
- *    - SCL  -> GPIO 22
- * 
- * 2. AD8232 (sEMG):
- *    - 3.3V -> 3.3V
- *    - GND  -> GND
- *    - OUT  -> GPIO 34 (ADC1_CH6) [Wi-Fi ile çakışmayan güvenli ADC1 kanalı]
- * 
- * FreeRTOS Çift Çekirdek (Dual-Core) Mimarisi:
- * ----------------------------------------------------------------------------
- * - CORE 0 (Task 1 - SensorTask) : 100 Hz (10ms) periyodik MPU6050 & ADC1 okuma
- * - CORE 1 (Task 2 - NetworkTask): Wi-Fi & WebSocket Client JSON veri aktarımı
- * 
- * Kütüphaneler:
- *   - ArduinoJson (v6 veya v7)
- *   - Adafruit MPU6050 & Adafruit Unified Sensor
- *   - ArduinoWebsockets (by Gil Maimon)
- * ============================================================================
- */
-
 #include <Arduino.h>
-#include <WiFi.h>
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
-#include <ArduinoJson.h>
+#include <driver/i2s.h>
+#include <WiFi.h>
 #include <ArduinoWebsockets.h>
 
 // ============================================================================
-// 1. KULLANICI AĞ & SUNUCU KONFİGÜRASYONU
+// CORTEX SLP / CROCODIL — MODÜL 105 NÖROMOTOR KİNEMATİK & AKUSTİK FIRMWARE
 // ============================================================================
-const char* WIFI_SSID     = "FiberHGW_ZY2B39";     // Wi-Fi Ağ Adı
-const char* WIFI_PASSWORD = "YrFvHpCPUbV7";        // Wi-Fi Şifresi
+// Sensör Entegrasyonu:
+// 1. MPU6050 (I2C):
+//    - SDA: GPIO 21
+//    - SCL: GPIO 22
+// 2. INMP441 I2S Dijital Mikrofon:
+//    - I2S_SCK (BCLK) = GPIO 14
+//    - I2S_WS  (LRC)  = GPIO 15
+//    - I2S_SD  (DATA) = GPIO 32
+//    - L/R            = GND (Sol Kanal / I2S_CHANNEL_FMT_ONLY_LEFT)
+// 3. AD8232 (sEMG):
+//    - Analog OUT     = GPIO 34 (ADC1_CH6)
+// ============================================================================
 
-// Python sunucunuzun yerel ağdaki IP adresi
-const char* WS_SERVER_HOST = "192.168.1.142";
+// ── Pin Tanımlamaları ────────────────────────────────────────────────────────
+#define PIN_I2C_SDA      21
+#define PIN_I2C_SCL      22
+#define PIN_SEMG_ADC     34
+
+#define I2S_SCK_PIN      14
+#define I2S_WS_PIN       15
+#define I2S_SD_PIN       32
+#define I2S_PORT_NUM     I2S_NUM_0
+
+// ── Wi-Fi & WebSocket Ayarları ───────────────────────────────────────────────
+const char* WIFI_SSID       = "FiberHGW_ZY2B39";
+const char* WIFI_PASSWORD   = "YrFvHpCPUbV7";
+const char* WS_SERVER_HOST  = "192.168.1.143";
 const uint16_t WS_SERVER_PORT = 8765;
-const char* WS_SERVER_PATH = "/ws/stream";
+const char* WS_SERVER_PATH  = "/ws/stream";
 
-// ============================================================================
-// 2. PIN & DONANIM SABİTLERİ
-// ============================================================================
-#define PIN_I2C_SDA     21
-#define PIN_I2C_SCL     22
-#define PIN_SEMG_ADC    34   // ADC1_CH6 (GPIO 34)
+// ── Örnekleme Parametreleri ──────────────────────────────────────────────────
+#define SAMPLE_PERIOD_MS    10   // 100 Hz sensör okuma frekansı
+#define AUDIO_BUFFER_SIZE   256  // I2S blok okuma tamponu
 
-#define SAMPLE_RATE_HZ  100
-#define SAMPLE_PERIOD_MS (1000 / SAMPLE_RATE_HZ) // 10 ms
-
-// ============================================================================
-// 3. VERİ YAPILARI & FREERTOS KUYRUĞU
-// ============================================================================
+// ── Sensör Veri Paketi Yapısı ────────────────────────────────────────────────
 struct SensorData {
     uint32_t timestamp_ms;
     float imu_pitch_deg;
@@ -69,27 +52,77 @@ struct SensorData {
     float imu_accel_x;
     float imu_accel_y;
     float imu_accel_z;
-    float semg_raw;         // 0 - 4095 ADC Ham Değeri
-    float semg_mv;          // Milivolt cinsinden voltaj
-    float semg_left_uv;     // Tahmini mikrovolt RMS/aktivasyon
-    uint8_t hayden_level;   // 1-7 aktif seviye (varsayılan: 4 - Artikülasyon)
+    float semg_left_uv;
+    float semg_raw;
+    float mic_rms_db;
+    int mic_amplitude;
+    bool mic_voiced;
+    uint8_t hayden_level;
 };
 
-// Core 0 ile Core 1 arasında veri aktarımı sağlayan kuyruk (Queue)
+// Kuyruk ve WebSocket Nesneleri
 QueueHandle_t sensorQueue = NULL;
-const int QUEUE_SIZE = 30;
-
-// Global Sensör Nesneleri
 Adafruit_MPU6050 mpu;
 using namespace websockets;
 WebsocketsClient wsClient;
 
-// ============================================================================
-// 4. CORE 0: SENSÖR OKUMA GÖREVİ (100 Hz Strict Interval)
-// ============================================================================
-// Global Durum Değişkeni (Test Başlat / Sonlandır)
-volatile bool isTestActive = true; // Varsayılan: Açık/Akışta
+volatile bool isTestActive = true;
+int16_t audioBuffer[AUDIO_BUFFER_SIZE];
 
+// ============================================================================
+// 1. INMP441 I2S MİKROFON KURULUMU
+// ============================================================================
+void setupI2S() {
+    const i2s_config_t i2s_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+        .sample_rate = 16000,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 4,
+        .dma_buf_len = 256,
+        .use_apll = false,
+        .tx_desc_auto_clear = false,
+        .fixed_mclk = 0
+    };
+
+    const i2s_pin_config_t pin_config = {
+        .bck_io_num = I2S_SCK_PIN,
+        .ws_io_num = I2S_WS_PIN,
+        .data_out_num = I2S_PIN_NO_CHANGE,
+        .data_in_num = I2S_SD_PIN
+    };
+
+    esp_err_t err = i2s_driver_install(I2S_PORT_NUM, &i2s_config, 0, NULL);
+    if (err == ESP_OK) {
+        i2s_set_pin(I2S_PORT_NUM, &pin_config);
+        i2s_zero_dma_buffer(I2S_PORT_NUM);
+        Serial.println("[INMP441] I2S Dijital Mikrofon Basariyla Baslatildi (16 kHz, 16-bit).");
+    } else {
+        Serial.printf("[HATA] INMP441 I2S yuklenemedi: %d\n", err);
+    }
+}
+
+// ============================================================================
+// 2. MPU6050 I2C JİROSKOP & İVMEÖLÇER KURULUMU
+// ============================================================================
+void setupMPU6050() {
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000); // 400 kHz Fast I2C
+
+    if (!mpu.begin(0x68, &Wire)) {
+        Serial.println("[HATA] MPU6050 bulunamadi! Baglantilari kontrol edin.");
+    } else {
+        mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
+        mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+        mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+        Serial.println("[MPU6050] Mandibular Kinematik Sensoru Basariyla Baslatildi (I2C: 21, 22).");
+    }
+}
+
+// ============================================================================
+// 3. CORE 0: 100 HZ EŞZAMANLI SENSÖR & SES OKUMA GÖREVİ
+// ============================================================================
 void TaskSensor(void* pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(SAMPLE_PERIOD_MS);
@@ -100,17 +133,14 @@ void TaskSensor(void* pvParameters) {
     const float alpha = 0.96f;
     const float dt = SAMPLE_PERIOD_MS / 1000.0f;
 
-    Serial.println("[Core 0] Sensor Task baslatildi (100 Hz)");
+    Serial.println("[Core 0] Sensor & Ses Okuma Gorevi Baslatildi (100 Hz)");
 
     for (;;) {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
+        // ── A. MPU6050 Kinematik Okuma ──
         sensors_event_t a, g, temp;
         bool mpuSuccess = mpu.getEvent(&a, &g, &temp);
-
-        int rawAdc = analogRead(PIN_SEMG_ADC);
-        float voltageMv = (rawAdc / 4095.0f) * 3300.0f;
-        float semgUv = fabsf(voltageMv - 1650.0f) * 10.0f;
 
         if (mpuSuccess) {
             float accelPitch = atan2(a.acceleration.y, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.z * a.acceleration.z)) * 180.0f / PI;
@@ -125,6 +155,54 @@ void TaskSensor(void* pvParameters) {
             yaw  += gyroYawRate * dt;
         }
 
+        // ── B. AD8232 sEMG Okuma (GPIO 34) ──
+        int rawAdc = analogRead(PIN_SEMG_ADC);
+        float voltageMv = (rawAdc / 4095.0f) * 3300.0f;
+        float semgUv = fabsf(voltageMv - 1650.0f) * 10.0f;
+
+        // ── C. INMP441 I2S Mikrofon Okuma & Genlik Hesabı ──
+        size_t bytesRead = 0;
+        int average_amplitude = 0;
+        float mic_rms_db = -60.0f;
+        bool mic_voiced = false;
+
+        esp_err_t audioErr = i2s_read(
+            I2S_PORT_NUM,
+            audioBuffer,
+            sizeof(audioBuffer),
+            &bytesRead,
+            0 // Non-blocking: kuyruğu beklemeden o anki DMA örneğini al
+        );
+
+        if (audioErr == ESP_OK && bytesRead > 0) {
+            int samplesRead = bytesRead / sizeof(int16_t);
+            if (samplesRead > 0) {
+                int64_t sum = 0;
+                for (int i = 0; i < samplesRead; i++) {
+                    sum += abs(audioBuffer[i]);
+                }
+                average_amplitude = sum / samplesRead;
+
+                // dBFS Yaklaşımı
+                if (average_amplitude > 0) {
+                    mic_rms_db = 20.0f * log10f((float)average_amplitude / 32767.0f);
+                    mic_rms_db = max(-60.0f, min(0.0f, mic_rms_db));
+                }
+
+                // Gürültü Eşiği Filtresi (> 50) -> Serial Monitor Çıktısı
+                if (average_amplitude > 50) {
+                    mic_voiced = true;
+                    int barLength = constrain(average_amplitude / 30, 1, 60);
+                    String barGraph = "";
+                    for (int b = 0; b < barLength; b++) {
+                        barGraph += "█";
+                    }
+                    Serial.printf("Ses Siddeti: %4d | %s\n", average_amplitude, barGraph.c_str());
+                }
+            }
+        }
+
+        // ── D. Sensör Veri Paketini Hazırla ve Kuyruğa Gönder ──
         SensorData data;
         data.timestamp_ms   = millis();
         data.imu_pitch_deg  = pitch;
@@ -134,8 +212,10 @@ void TaskSensor(void* pvParameters) {
         data.imu_accel_y    = mpuSuccess ? a.acceleration.y : 0.0f;
         data.imu_accel_z    = mpuSuccess ? a.acceleration.z : 0.0f;
         data.semg_raw       = (float)rawAdc;
-        data.semg_mv        = voltageMv;
         data.semg_left_uv   = semgUv;
+        data.mic_amplitude  = average_amplitude;
+        data.mic_rms_db     = mic_rms_db;
+        data.mic_voiced     = mic_voiced;
         data.hayden_level   = 4;
 
         if (sensorQueue != NULL) {
@@ -145,7 +225,7 @@ void TaskSensor(void* pvParameters) {
 }
 
 // ============================================================================
-// 5. CORE 1: WI-FI & WEBSOCKET AĞ İLETİŞİMİ GÖREVİ
+// 4. CORE 1: WI-FI & WEBSOCKET AĞ İLETİŞİMİ GÖREVİ
 // ============================================================================
 void connectWiFi() {
     if (WiFi.status() == WL_CONNECTED) return;
@@ -154,7 +234,7 @@ void connectWiFi() {
     Serial.println(WIFI_SSID);
 
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false); // Wi-Fi Modem Sleep kapat (Sıfır gecikme)
+    WiFi.setSleep(false);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     int retryCount = 0;
@@ -190,7 +270,6 @@ void connectWebSocket() {
 void TaskNetwork(void* pvParameters) {
     Serial.println("[Core 1] Network Task baslatildi");
 
-    // Sunucudan gelen Test Başlat / Durdur komutlarını dinle
     wsClient.onMessage([](WebsocketsMessage message) {
         String msg = message.data();
         if (msg.indexOf("start_test") >= 0 || msg.indexOf("start") >= 0) {
@@ -232,17 +311,18 @@ void TaskNetwork(void* pvParameters) {
         wsClient.poll();
 
         if (xQueueReceive(sensorQueue, &data, pdMS_TO_TICKS(10)) == pdTRUE) {
-            // Yüksek performanslı, sıfır heap tahsisli (zero-allocation) JSON formatlama
             snprintf(jsonBuffer, sizeof(jsonBuffer),
                 "{\"timestamp_ms\":%lu,\"imu_pitch_deg\":%.2f,\"imu_roll_deg\":%.2f,\"imu_yaw_deg\":%.2f,"
                 "\"imu_accel_x\":%.2f,\"imu_accel_y\":%.2f,\"imu_accel_z\":%.2f,"
                 "\"semg_left_uv\":%.1f,\"semg_right_uv\":0.0,\"semg_asymmetry_pct\":0.0,\"semg_raw\":%.0f,"
-                "\"resp_waveform\":0.0,\"resp_rate_bpm\":0.0,\"mic_rms_db\":-60.0,\"mic_f0_hz\":0.0,\"mic_voiced\":false,"
+                "\"resp_waveform\":0.0,\"resp_rate_bpm\":0.0,\"mic_rms_db\":%.1f,\"mic_f0_hz\":0.0,\"mic_voiced\":%s,"
                 "\"hayden_level\":%d,\"session_phase\":\"%s\"}",
                 (unsigned long)data.timestamp_ms,
                 data.imu_pitch_deg, data.imu_roll_deg, data.imu_yaw_deg,
                 data.imu_accel_x, data.imu_accel_y, data.imu_accel_z,
                 data.semg_left_uv, data.semg_raw,
+                data.mic_rms_db,
+                data.mic_voiced ? "true" : "false",
                 (int)data.hayden_level,
                 isTestActive ? "görev" : "istirahat"
             );
@@ -253,72 +333,58 @@ void TaskNetwork(void* pvParameters) {
 }
 
 // ============================================================================
-// 6. SETUP & MAIN LOOP
+// 5. SETUP & LOOP
 // ============================================================================
 void setup() {
-    // Seri Port (Sadece hata ve durum logları için)
     Serial.begin(115200);
     delay(1000);
-    Serial.println("\n========================================================");
-    Serial.println("  Modül 105 — PROMPT Kinematik & Akustik İstasyonu");
-    Serial.println("  ESP32 Dual-Core FreeRTOS Firmware v1.0");
-    Serial.println("========================================================");
 
-    // ADC Konfigürasyonu (GPIO 34 / ADC1_CH6)
-    analogReadResolution(12); // 0-4095
-    analogSetAttenuation(ADC_11db); // 0 - 3.3V ölçüm aralığı
-    pinMode(PIN_SEMG_ADC, INPUT);
+    Serial.println("\n==================================================");
+    Serial.println("  CORTEX SLP — MPU6050 + INMP441 + AD8232 M105");
+    Serial.println("==================================================");
+    Serial.println("MPU6050 I2C : SDA=21, SCL=22");
+    Serial.println("INMP441 I2S : SCK=14, WS=15, SD=32 (16kHz, 16-bit)");
+    Serial.println("AD8232 sEMG : GPIO 34 (ADC1_CH6)");
+    Serial.println("Esik Degeri : average_amplitude > 50\n");
 
-    // I2C Başlatma (SDA=21, SCL=22, 400kHz Fast Mode)
-    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000);
+    // 1. MPU6050 ve INMP441 Başlatma
+    setupMPU6050();
+    setupI2S();
 
-    // MPU6050 Başlatma
-    Serial.println("[Setup] MPU6050 baslatiliyor...");
-    if (!mpu.begin(0x68, &Wire)) {
-        Serial.println("[HATA] MPU6050 bulunamadi! Baglantilari kontrol edin.");
-        while (1) { delay(1000); }
-    }
-    Serial.println("[Setup] MPU6050 basariyla baglandi!");
+    // 2. ADC Yapılandırması
+    analogReadResolution(12);
+    analogSetAttenuation(ADC_11db);
 
-    // MPU6050 Ölçüm Aralıkları
-    mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
-    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+    // 3. Çekirdekler Arası Kuyruk Oluştur (30 Paket Kapasiteli)
+    sensorQueue = xQueueCreate(30, sizeof(SensorData));
 
-    // FreeRTOS Kuyruğu Oluştur
-    sensorQueue = xQueueCreate(QUEUE_SIZE, sizeof(SensorData));
-    if (sensorQueue == NULL) {
-        Serial.println("[HATA] FreeRTOS Queue olusturulamadi!");
-        while (1) { delay(1000); }
-    }
-
-    // FreeRTOS Çift Çekirdek Görevlerini Başlat:
-    // Core 0: Sensör Ölçüm Görevi (Öncelik: 2 - Yüksek)
+    // 4. FreeRTOS Çift Çekirdek Görevlerini Başlat
+    // Core 0: 100 Hz Sensör & Ses Okuma
     xTaskCreatePinnedToCore(
-        TaskSensor,         // Görev Fonksiyonu
-        "SensorTask",       // Görev Adı
-        4096,               // Stack Boyutu (Byte)
-        NULL,               // Parametre
-        2,                  // Öncelik
-        NULL,               // Görev Tanımlayıcısı
-        0                   // ÇEKİRDEK 0 (Core 0)
+        TaskSensor,
+        "TaskSensor",
+        4096,
+        NULL,
+        2,  // Yüksek öncelik
+        NULL,
+        0   // Core 0
     );
 
-    // Core 1: Wi-Fi & WebSocket Ağ Görevi (Öncelik: 1 - Standart)
+    // Core 1: Wi-Fi & WebSocket İletişimi
     xTaskCreatePinnedToCore(
-        TaskNetwork,        // Görev Fonksiyonu
-        "NetworkTask",      // Görev Adı
-        8192,               // Stack Boyutu (Byte)
-        NULL,               // Parametre
-        1,                  // Öncelik
-        NULL,               // Görev Tanımlayıcısı
-        1                   // ÇEKİRDEK 1 (Core 1)
+        TaskNetwork,
+        "TaskNetwork",
+        6144,
+        NULL,
+        1,  // Normal öncelik
+        NULL,
+        1   // Core 1
     );
 
-    Serial.println("[Setup] Tum FreeRTOS gorevleri baslatildi.");
+    Serial.println("[SISTEM] Cift Cekirdek (Dual-Core) Gorevleri Basariyla Baslatildi.");
 }
 
 void loop() {
-    // Tüm operasyon FreeRTOS Task'lerinde yürüdüğü için loop boş bırakılır.
-    vTaskDelete(NULL); // Ana loop task'ını temizleyerek bellek tasarrufu sağla
+    // Tüm sensör ve ağ işlemleri FreeRTOS Core 0 ve Core 1 görevlerinde yürütülür.
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }

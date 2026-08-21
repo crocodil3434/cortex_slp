@@ -3,8 +3,8 @@ import React, { useState, useEffect } from "react";
 import type { AssessmentFormProps } from "./shared";
 import { LABEL, INPUT, SECTION, SECTION_TITLE, TEXTAREA, SaveBar, RadioGroup } from "./shared";
 import { generateAssessmentSummary } from "@/lib/crocodil/gemini";
-import { getSettings, saveGoal } from "@/lib/crocodil/storage";
-import { FileText, Sparkles, Loader2, Target, Download } from "lucide-react";
+import { getSettings, saveGoal, getGoals } from "@/lib/crocodil/storage";
+import { FileText, Sparkles, Loader2, Target, Download, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/components/crocodil/Toast";
 
 export default function ConclusionForm({ assessment, onSave, client }: AssessmentFormProps) {
@@ -17,14 +17,21 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
   });
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const { error } = useToast();
-  const [goals, setGoals] = useState([{ desc: "", icf: "" }]);
+  const { success, error } = useToast();
+  const [goals, setGoals] = useState<{ id?: string; desc: string; icf: string }[]>([{ desc: "", icf: "" }]);
   
   const [settings, setSettings] = useState<any>(null);
   
   useEffect(() => {
     getSettings().then(setSettings);
-  }, []);
+    if (client?.id) {
+      getGoals(client.id).then((existing) => {
+        if (existing && existing.length > 0) {
+          setGoals(existing.map((g) => ({ id: g.id, desc: g.description, icf: g.icfCode || "" })));
+        }
+      });
+    }
+  }, [client?.id]);
   const age = client.birthDate ? new Date().getFullYear() - new Date(client.birthDate).getFullYear() : 0;
 
   const handleSave = async () => {
@@ -33,19 +40,23 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
     
     // Hedefleri kaydet
     const validGoals = goals.filter((g) => g.desc.trim());
-    await Promise.all(validGoals.map((g) => 
-      saveGoal({
-        clientId: client.id,
-        description: g.desc,
-        icfCode: g.icf || undefined,
-        targetPercent: 80,
-        currentPercent: 0,
-        domain: "bodyFunction",
-        status: "aktif",
-      })
-    ));
+    if (validGoals.length > 0) {
+      await Promise.all(validGoals.map((g) => 
+        saveGoal({
+          id: g.id,
+          clientId: client.id,
+          description: g.desc,
+          icfCode: g.icf || undefined,
+          targetPercent: 80,
+          currentPercent: 0,
+          domain: "bodyFunction",
+          status: "aktif",
+        })
+      ));
+    }
     
     setSaving(false);
+    success("Kaydedildi", "Değerlendirme sonuçları ve hedefler başarıyla güncellendi.");
   };
 
   const handleGenerateSummary = async () => {
@@ -117,15 +128,28 @@ export default function ConclusionForm({ assessment, onSave, client }: Assessmen
         <p className="text-xs text-gray-400 mb-3">Buraya eklediğiniz hedefler doğrudan hastanın hedefler listesine kaydedilecektir.</p>
         <div className="space-y-2">
           {goals.map((g, i) => (
-            <div key={i} className="flex gap-2">
+            <div key={i} className="flex items-center gap-2">
               <input type="text" value={g.desc} onChange={(e) => { const n = [...goals]; n[i].desc = e.target.value; setGoals(n); }}
                 placeholder="Örn: Danışan 3 ay içinde bağımsız olarak /s/ sesini sözcük başında %80 doğrulukla üretir." className={INPUT + " flex-1"} style={{ borderColor: "#e5e7eb" }} />
               <input type="text" value={g.icf} onChange={(e) => { const n = [...goals]; n[i].icf = e.target.value; setGoals(n); }}
-                placeholder="ICF Kodu (Ops.)" className={INPUT + " w-32"} style={{ borderColor: "#e5e7eb" }} />
+                placeholder="ICF Kodu (Ops.)" className={INPUT + " w-28"} style={{ borderColor: "#e5e7eb" }} />
+              {goals.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setGoals(goals.filter((_, idx) => idx !== i))}
+                  className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50"
+                  title="Satırı sil"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           ))}
-          <button onClick={() => setGoals([...goals, { desc: "", icf: "" }])}
-            className="text-xs font-semibold text-teal-600 hover:text-teal-700">+ Yeni Hedef Satırı</button>
+          <button type="button" onClick={() => setGoals([...goals, { desc: "", icf: "" }])}
+            className="text-xs font-semibold text-teal-600 hover:text-teal-700 flex items-center gap-1 mt-1">
+            <Plus className="w-3.5 h-3.5" />
+            Yeni Hedef Satırı Ekle
+          </button>
         </div>
       </div>
 

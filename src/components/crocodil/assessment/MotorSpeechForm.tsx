@@ -2,26 +2,68 @@
 import React, { useState } from "react";
 import type { AssessmentFormProps } from "./shared";
 import { LABEL, INPUT, SECTION, SECTION_TITLE, TEXTAREA, CheckboxGroup, SaveBar } from "./shared";
+import Link from "next/link";
+import { Radio, Sparkles, Activity, ShieldAlert, CheckCircle2 } from "lucide-react";
 
-const DYSARTHRIA_TYPES = ["Spastik", "Flaksid", "Ataksik", "Hipokinetik", "Hiperkinetik", "UKS (Üst Motor Nöron)", "Karma"];
-const APRAXIA_FEATURES = [
-  "Sözcük uzadıkça artan hatalar", "Tutarsız ses hataları", 
-  "Groping (Arama/Çabalama davranışı)", "Otomatik konuşmanın (sayma vb.) daha iyi olması", 
-  "Prosodi bozukluğu (eşitlenmiş vurgu)", "Başlatma güçlüğü"
+// ── Dizartri Alt Tipleri (Darley, Aronson & Brown Sınıflandırması) ───────────
+const DYSARTHRIA_TYPES = [
+  { id: "Spastik (Üst Motor Nöron)", label: "Spastik (Bilateral ÜMN - Gergin/Boğuk ses, yavaş hız)" },
+  { id: "Flaksid (Alt Motor Nöron)", label: "Flaksid (AMN - Nefesli ses, hipernazalite, kas atrofisi/fasikülasyon)" },
+  { id: "Ataksik (Serebellar)", label: "Ataksik (Serebellar - Sarhoşumsu konuşma, eşitlenmiş vurgu, ritim tutarsızlığı)" },
+  { id: "Hipokinetik (Ekstrapiramidal)", label: "Hipokinetik (Parkinsonizm - Monoton perde/şiddet, festinasyon/hızlanma)" },
+  { id: "Hiperkinetik (Distoni/Kore)", label: "Hiperkinetik (Ekstrapiramidal - İstemsiz hareketler, ani ses patlamaları)" },
+  { id: "Unilateral ÜMN", label: "Unilateral Üst Motor Nöron (Hafif-orta tek taraflı zayıflık)" },
+  { id: "Karma / Mikst Dizartri", label: "Karma / Mikst (Spastik-Flaksid, ALS, Travmatik vb.)" },
 ];
 
-import Link from "next/link";
-import { Radio, ExternalLink, Sparkles } from "lucide-react";
+// ── Apraksi Alt Tipleri & Özellikleri (CAS / AOS) ─────────────────────────────
+const APRAXIA_TYPES = [
+  { id: "CAS", label: "Çocukluk Çağı Konuşma Apraksisi (CAS / ÇÖKA - Gelişimsel)" },
+  { id: "AOS", label: "Edinsel Konuşma Apraksisi (AOS - İnme/TBI/Kortikal)" },
+  { id: "OralApraxia", label: "Sözsüz Oral/Fasial Apraksi (İstemli konuşma dışı hareket güçlüğü)" },
+];
+
+const APRAXIA_FEATURES = [
+  "Sözcük uzadıkça ve hece karmaşıklaştıkça artan hatalar",
+  "Aynı sözcükte tutarsız/değişken sesletim hataları",
+  "Groping (Konuşma organlarında pozisyon arama/çabalama davranışı)",
+  "Otomatik konuşmanın (sayma, ezber) istemli konuşmadan belirgin iyi olması",
+  "Prosodi bozukluğu (eşitlenmiş ve aşırı vurgu, hece parçalanması)",
+  "Konuşmayı başlatmada belirgin zorlanma ve sessiz bloklar",
+  "Ünlü bozulmaları ve hece geçişlerinde koartikülasyon kopukluğu",
+];
+
+// ── Tipik Gelişimde Motor Konuşma Etkilenmesi (Gelişimsel Koordinasyon) ────────
+const TYPICAL_MOTOR_FEATURES = [
+  "Nörolojik hasar/apraksi olmaksızın artikülatör hız ve çeviklik zayıflığı",
+  "Hızlı konuşmada fonetik dağılma ve hece yutma (koordinasyon yetersizliği)",
+  "Mandibular çene açılma derecesinde kısıtlılık veya aşırı açıklık",
+  "Hece uzatması ve kelime arası geçişlerde motor akıcılık tutukluğu",
+  "Sıralama hatası olmaksızın motor planlama yavaşlığı",
+  "Geç konuşan / Dili yeni yakalayan çocukta motor artikülatör olgunlaşma gecikmesi",
+  "Fasiyal ve lingual kas tonusunda hafif hipotoni/gevşeklik eğilimi",
+];
 
 export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormProps) {
   const [data, setData] = useState(assessment.motorSpeech ?? {
     diagnosisType: "",
     dysarthriaType: "",
+    apraxiaType: "",
     apraxiaFeatures: [],
-    ddkAmr: undefined, ddkSmr: undefined,
+    typicalMotorFeatures: [],
+    typicalMotorNotes: "",
+    respirationSupport: "adequate",
+    phonationQuality: "normal",
+    resonanceFunction: "normal",
+    articulationPrecision: "normal",
+    prosodyControl: "normal",
+    ddkAmr: undefined,
+    ddkSmr: undefined,
+    ddkRegularity: "regular",
     fda2Score: undefined,
     notes: "",
   });
+
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -30,8 +72,12 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
     setSaving(false);
   };
 
+  const isDysarthria = data.diagnosisType === "Dizartri" || data.diagnosisType === "Karma Motor Bozukluk";
+  const isApraxia = data.diagnosisType === "Apraksi (CAS / AOS)" || data.diagnosisType === "Karma Motor Bozukluk";
+  const isTypicalMotor = data.diagnosisType === "Tipik Gelişimde Motor Konuşma Etkilenmesi";
+
   return (
-    <div className="p-5 max-w-2xl mx-auto space-y-4">
+    <div className="p-5 max-w-3xl mx-auto space-y-4">
       {/* Modül 105 Canlı Ölçüm Başlatma Banner'ı */}
       <div className="rounded-2xl p-4 border flex items-center justify-between gap-4"
         style={{ background: "linear-gradient(135deg, #0f2027, #134e4a)", borderColor: "rgba(13,148,136,0.3)" }}>
@@ -41,9 +87,9 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
           </div>
           <div>
             <div className="text-white font-bold text-sm flex items-center gap-2">
-              Modül 105: PROMPT İstasyonu
+              Modül 105
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-500/30 text-teal-300 border border-teal-400/30">
-                Canlı Sensör
+                Canlı Biyogeribildirim & Kinematik
               </span>
             </div>
             <p className="text-teal-300/70 text-xs mt-0.5">
@@ -60,7 +106,7 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
         </Link>
       </div>
 
-      {/* Eğer Modül 105'ten ölçüm yapılmışsa telemetry kartı */}
+      {/* Modül 105 Telemetri Özeti */}
       {data.m105SessionId && (
         <div className="bg-teal-50/70 rounded-2xl p-4 border" style={{ borderColor: "#99f6e4" }}>
           <div className="flex items-center justify-between mb-3">
@@ -98,66 +144,284 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
         </div>
       )}
 
+      {/* ── 1. MOTOR KONUŞMA TANI VE SINIFLANDIRMASI ──────────────────────────── */}
       <div className={SECTION} style={{ borderColor: "#ffedd5" }}>
-        <div className={SECTION_TITLE}><span>⚙️</span>Motor Konuşma Bozukluğu</div>
-        
-        <div className="flex gap-2 mb-4">
-          {["Dizartri", "Apraksi (AOS / CAS)", "Karma (Dizartri + Apraksi)"].map((opt) => (
-            <button key={opt} onClick={() => setData((d) => ({ ...d, diagnosisType: opt }))}
-              className="px-4 py-2 rounded-xl text-sm font-semibold border transition-all"
-              style={{ background: data.diagnosisType === opt ? "#f97316" : "white",
-                borderColor: data.diagnosisType === opt ? "#f97316" : "#e5e7eb", color: data.diagnosisType === opt ? "white" : "#4b5563" }}>
-              {opt}
+        <div className={SECTION_TITLE}>
+          <span>⚙️</span>
+          Motor Konuşma Değerlendirmesi & Tanı Profili
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          Danışanın motor konuşma etkilenme tipini ve klinik alt sınıflandırmasını belirleyin:
+        </p>
+
+        {/* Ana Tanı Seçimi */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          {[
+            { id: "Dizartri", label: "Dizartri", icon: "🧠", color: "#ea580c" },
+            { id: "Apraksi (CAS / AOS)", label: "Apraksi (CAS / AOS)", icon: "🎯", color: "#f97316" },
+            { id: "Tipik Gelişimde Motor Konuşma Etkilenmesi", label: "Tipik Gelişimde Motor Etkilenme", icon: "🌱", color: "#0d9488" },
+            { id: "Karma Motor Bozukluk", label: "Karma / Diğer", icon: "🔀", color: "#6366f1" },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setData((d) => ({ ...d, diagnosisType: opt.id }))}
+              className={`p-3 rounded-xl text-xs font-bold border-2 transition-all flex flex-col items-center justify-center gap-1.5 ${
+                data.diagnosisType === opt.id ? "shadow-md scale-102" : "opacity-80 hover:opacity-100"
+              }`}
+              style={{
+                background: data.diagnosisType === opt.id ? `${opt.color}15` : "white",
+                borderColor: data.diagnosisType === opt.id ? opt.color : "#e5e7eb",
+                color: data.diagnosisType === opt.id ? opt.color : "#4b5563",
+              }}
+            >
+              <span className="text-lg">{opt.icon}</span>
+              <span className="text-center leading-tight">{opt.label}</span>
             </button>
           ))}
         </div>
 
-        {(data.diagnosisType === "Dizartri" || data.diagnosisType === "Karma (Dizartri + Apraksi)") && (
-          <div className="mb-4">
-            <label className={LABEL}>Dizartri Tipi</label>
-            <div className="flex gap-2 flex-wrap">
+        {/* ── DİZARTRİ ALT TİPLERİ ── */}
+        {isDysarthria && (
+          <div className="mb-4 p-3.5 rounded-xl border bg-orange-50/50" style={{ borderColor: "#fed7aa" }}>
+            <label className={LABEL}>Dizartri Klinik Alt Tipi</label>
+            <div className="grid grid-cols-1 gap-1.5 mt-1">
               {DYSARTHRIA_TYPES.map((opt) => (
-                <button key={opt} onClick={() => setData((d) => ({ ...d, dysarthriaType: opt }))}
-                  className="px-3 py-1.5 rounded-xl text-xs border transition-all"
-                  style={{ background: data.dysarthriaType === opt ? "rgba(249,115,22,0.15)" : "white",
-                    borderColor: data.dysarthriaType === opt ? "#f97316" : "#e5e7eb", color: data.dysarthriaType === opt ? "#ea580c" : "#374151" }}>
-                  {opt}
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setData((d) => ({ ...d, dysarthriaType: opt.id }))}
+                  className={`px-3 py-2 rounded-xl text-xs text-left border transition-all flex items-center justify-between ${
+                    data.dysarthriaType === opt.id ? "bg-orange-500 text-white font-semibold border-orange-500 shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:bg-orange-50/30"
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  {data.dysarthriaType === opt.id && <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 ml-2" />}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {(data.diagnosisType === "Apraksi (AOS / CAS)" || data.diagnosisType === "Karma (Dizartri + Apraksi)") && (
-          <div className="mb-4">
-            <CheckboxGroup label="Apraksi (CAS/AOS) Gözlemleri" options={APRAXIA_FEATURES} selected={data.apraxiaFeatures ?? []}
-              onChange={(s) => setData((d) => ({ ...d, apraxiaFeatures: s }))} />
+        {/* ── APRAKSİ ALT TİPLERİ & GÖZLEMLERİ ── */}
+        {isApraxia && (
+          <div className="mb-4 p-3.5 rounded-xl border bg-amber-50/50 space-y-3" style={{ borderColor: "#fde68a" }}>
+            <div>
+              <label className={LABEL}>Apraksi Tipi</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
+                {APRAXIA_TYPES.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setData((d) => ({ ...d, apraxiaType: opt.id }))}
+                    className={`p-2.5 rounded-xl text-xs text-center border transition-all ${
+                      data.apraxiaType === opt.id ? "bg-amber-500 text-white font-bold border-amber-500" : "bg-white text-gray-700 border-gray-200"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <CheckboxGroup
+              label="Apraksi (CAS / AOS) Temel Klinik Bulguları:"
+              options={APRAXIA_FEATURES}
+              selected={data.apraxiaFeatures ?? []}
+              onChange={(s) => setData((d) => ({ ...d, apraxiaFeatures: s }))}
+            />
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 mt-4">
-          <div>
-            <label className={LABEL}>DDK - AMR (pa-pa-pa)</label>
-            <input type="number" step="0.1" value={data.ddkAmr ?? ""} placeholder="sn (örn: 4.5)"
-              onChange={(e) => setData((d) => ({ ...d, ddkAmr: e.target.value ? Number(e.target.value) : undefined }))}
-              className={INPUT} style={{ borderColor: "#e5e7eb" }} />
-          </div>
-          <div>
-            <label className={LABEL}>DDK - SMR (pa-ta-ka)</label>
-            <input type="number" step="0.1" value={data.ddkSmr ?? ""} placeholder="sn (örn: 6.2)"
-              onChange={(e) => setData((d) => ({ ...d, ddkSmr: e.target.value ? Number(e.target.value) : undefined }))}
-              className={INPUT} style={{ borderColor: "#e5e7eb" }} />
-          </div>
-        </div>
-        <p className="text-[10px] text-gray-400 mt-1 mb-4">Diadochokinetic (DDK) Rate. AMR: Alternating Motion Rate, SMR: Sequential Motion Rate</p>
+        {/* ── TİPİK GELİŞİMDE MOTOR KONUŞMA ETKİLENMESİ ── */}
+        {isTypicalMotor && (
+          <div className="mb-4 p-3.5 rounded-xl border bg-teal-50/50 space-y-3" style={{ borderColor: "#99f6e4" }}>
+            <div className="flex items-center gap-2">
+              <span className="text-teal-700 font-bold text-xs">🌱 Normal Gelişimde Motor Konuşma Koordinasyon Güçlüğü</span>
+            </div>
+            <p className="text-[11px] text-teal-800/80 leading-relaxed">
+              Nörolojik hasar olmaksızın, hızlı konuşma, hece geçişleri ve fonetik-motor entegrasyonda zorluk yaşayan tipik gelişimli çocukların profili:
+            </p>
 
-        <div>
-          <label className={LABEL}>Klinik Gözlem & Semptom Notları</label>
-          <textarea value={data.notes ?? ""} onChange={(e) => setData((d) => ({ ...d, notes: e.target.value }))}
-            placeholder="Respirasyon, fonasyon, artikülasyon, rezonans ve prosodi (5 alt sistem) analiziniz..." rows={4}
-            className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 resize-none" style={{ borderColor: "#e5e7eb" }} />
+            <CheckboxGroup
+              label="Gözlenen Gelişimsel Motor Konuşma Bulguları:"
+              options={TYPICAL_MOTOR_FEATURES}
+              selected={data.typicalMotorFeatures ?? []}
+              onChange={(s) => setData((d) => ({ ...d, typicalMotorFeatures: s }))}
+            />
+
+            <div>
+              <label className={LABEL}>Gelişimsel Motor Konuşma Notları</label>
+              <textarea
+                value={data.typicalMotorNotes ?? ""}
+                onChange={(e) => setData((d) => ({ ...d, typicalMotorNotes: e.target.value }))}
+                placeholder="Örn: Dil gelişimi kronolojik yaşıyla uyumlu ancak ardışık hece geçişlerinde çene-dil koordinasyonunda yorgunluk ve fonetik netlik kaybı izleniyor..."
+                rows={2}
+                className="w-full border rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-teal-400 resize-none bg-white"
+                style={{ borderColor: "#99f6e4" }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── 2. MOTOR KONUŞMANIN 5 ALT SİSTEMİ ───────────────────────────────── */}
+      <div className={SECTION} style={{ borderColor: "#e5f7f5" }}>
+        <div className={SECTION_TITLE}>
+          <Activity className="w-4 h-4 text-teal-600" />
+          5 Motor Konuşma Alt Sistemi Analizi
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {/* Solunum */}
+          <div className="p-3 rounded-xl border bg-white" style={{ borderColor: "#e5e7eb" }}>
+            <label className={LABEL}>1. Solunum Desteği (Respirasyon)</label>
+            <select
+              value={data.respirationSupport ?? "adequate"}
+              onChange={(e) => setData((d) => ({ ...d, respirationSupport: e.target.value as any }))}
+              className={INPUT + " text-xs"}
+              style={{ borderColor: "#e5e7eb" }}
+            >
+              <option value="adequate">Yeterli / Normal solunum desteği</option>
+              <option value="reduced">Azalmış (Sözcük ortasında nefes alma, kısa cümleler)</option>
+              <option value="impaired">Ağır Yetersiz (Paradoksal solunum, çok zayıf subglottal basınç)</option>
+            </select>
+          </div>
+
+          {/* Fonasyon */}
+          <div className="p-3 rounded-xl border bg-white" style={{ borderColor: "#e5e7eb" }}>
+            <label className={LABEL}>2. Fonasyon & Ses Kalitesi</label>
+            <select
+              value={data.phonationQuality ?? "normal"}
+              onChange={(e) => setData((d) => ({ ...d, phonationQuality: e.target.value as any }))}
+              className={INPUT + " text-xs"}
+              style={{ borderColor: "#e5e7eb" }}
+            >
+              <option value="normal">Normal ses kalitesi ve kararlılık</option>
+              <option value="breathy">Nefesli / Soluklu (Flaksid eğilim)</option>
+              <option value="strained">Gergin / Boğuk / Zorlanmalı (Spastik eğilim)</option>
+              <option value="wet">Islak / Sekresyonlu ses</option>
+              <option value="tremor">Vokal Tremor / Dalgalanma</option>
+            </select>
+          </div>
+
+          {/* Rezonans */}
+          <div className="p-3 rounded-xl border bg-white" style={{ borderColor: "#e5e7eb" }}>
+            <label className={LABEL}>3. Rezonans (Velofarengeal Kapanma)</label>
+            <select
+              value={data.resonanceFunction ?? "normal"}
+              onChange={(e) => setData((d) => ({ ...d, resonanceFunction: e.target.value as any }))}
+              className={INPUT + " text-xs"}
+              style={{ borderColor: "#e5e7eb" }}
+            >
+              <option value="normal">Normal oral/nazal rezonans dengesi</option>
+              <option value="hypernasal">Hipernazalite (Açık nazal kaçak)</option>
+              <option value="hyponasal">Hiponazalite (Tıkalı geniz rezonansı)</option>
+              <option value="nasal_emission">Nazal Emisyon (Basınçlı ünsüzlerde burundan hava kaçışı)</option>
+              <option value="cul_de_sac">Cul-de-sac Rezonansı</option>
+            </select>
+          </div>
+
+          {/* Artikülasyon */}
+          <div className="p-3 rounded-xl border bg-white" style={{ borderColor: "#e5e7eb" }}>
+            <label className={LABEL}>4. Artikülasyon Hassasiyeti</label>
+            <select
+              value={data.articulationPrecision ?? "normal"}
+              onChange={(e) => setData((d) => ({ ...d, articulationPrecision: e.target.value as any }))}
+              className={INPUT + " text-xs"}
+              style={{ borderColor: "#e5e7eb" }}
+            >
+              <option value="normal">Keskin ve doğru artikülasyon</option>
+              <option value="slurred">Peltemsi / Anlaşılmaz (Slurred / Dizartrik)</option>
+              <option value="distorted">Sistematik Distorsiyon / Çarpıtma</option>
+              <option value="inconsistent">Tutarsız ve değişken sesletim (Apraktik)</option>
+            </select>
+          </div>
+
+          {/* Prosodi */}
+          <div className="p-3 rounded-xl border bg-white sm:col-span-2" style={{ borderColor: "#e5e7eb" }}>
+            <label className={LABEL}>5. Prosodi & Konuşma Riti</label>
+            <select
+              value={data.prosodyControl ?? "normal"}
+              onChange={(e) => setData((d) => ({ ...d, prosodyControl: e.target.value as any }))}
+              className={INPUT + " text-xs"}
+              style={{ borderColor: "#e5e7eb" }}
+            >
+              <option value="normal">Doğal vurgu, tonlama ve akış hızı</option>
+              <option value="monotone">Monoton Perde & Monoton Şiddet</option>
+              <option value="excess_equal_stress">Eşitlenmiş ve Aşırı Vurgu (Robotik / Hece parçalanması)</option>
+              <option value="rate_irregular">Değişken / Düzensiz Hız (Ani hızlanma veya bloklar)</option>
+            </select>
+          </div>
         </div>
       </div>
+
+      {/* ── 3. DİADOKOKİNETİK (DDK) HIZ VE RİTİM ─────────────────────────────── */}
+      <div className={SECTION} style={{ borderColor: "#e5f7f5" }}>
+        <div className={SECTION_TITLE}>
+          <span>⏱️</span>
+          Diadokokinetik Hız (DDK: AMR & SMR)
+        </div>
+        <p className="text-xs text-gray-400 mb-3">
+          Motor konuşma planlama hızı, hece geçiş stabilitesi ve arama (groping) davranışını ölçün:
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className={LABEL}>AMR (pa-pa-pa / ta-ta-ta)</label>
+            <input
+              type="number"
+              step="0.1"
+              value={data.ddkAmr ?? ""}
+              placeholder="Hz (örn: 5.2 hece/sn)"
+              onChange={(e) => setData((d) => ({ ...d, ddkAmr: e.target.value ? Number(e.target.value) : undefined }))}
+              className={INPUT}
+              style={{ borderColor: "#e5e7eb" }}
+            />
+          </div>
+          <div>
+            <label className={LABEL}>SMR (pa-ta-ka)</label>
+            <input
+              type="number"
+              step="0.1"
+              value={data.ddkSmr ?? ""}
+              placeholder="Hz (örn: 4.0 hece/sn)"
+              onChange={(e) => setData((d) => ({ ...d, ddkSmr: e.target.value ? Number(e.target.value) : undefined }))}
+              className={INPUT}
+              style={{ borderColor: "#e5e7eb" }}
+            />
+          </div>
+          <div>
+            <label className={LABEL}>Ritim & Düzenlilik</label>
+            <select
+              value={data.ddkRegularity ?? "regular"}
+              onChange={(e) => setData((d) => ({ ...d, ddkRegularity: e.target.value as any }))}
+              className={INPUT}
+              style={{ borderColor: "#e5e7eb" }}
+            >
+              <option value="regular">Düzenli ve senkronize</option>
+              <option value="irregular">Düzensiz / Ritmi bozuk</option>
+              <option value="groping">Groping / Arama ve sıralama hatası</option>
+            </select>
+          </div>
+        </div>
+        <div className="p-2.5 rounded-xl text-[11px] text-gray-500 mt-2 bg-gray-50 border border-gray-100">
+          <strong>Referans Değerler (Çocuk/Yetişkin):</strong> AMR: 4.5 – 6.5 hece/sn · SMR: 3.5 – 5.5 hece/sn
+        </div>
+
+        <div className="mt-4">
+          <label className={LABEL}>Klinik Gözlem & Semptom Notları</label>
+          <textarea
+            value={data.notes ?? ""}
+            onChange={(e) => setData((d) => ({ ...d, notes: e.target.value }))}
+            placeholder="Oral motor yapı, istemli hareket kontrolü, fonksiyonel konuşma anlaşılırlığı ve klinik gözlemleriniz..."
+            rows={4}
+            className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-teal-400 resize-none"
+            style={{ borderColor: "#e5e7eb" }}
+          />
+        </div>
+      </div>
+
       <SaveBar onSave={handleSave} saving={saving} />
     </div>
   );
