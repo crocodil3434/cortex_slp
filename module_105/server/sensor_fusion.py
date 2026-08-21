@@ -147,10 +147,30 @@ class SensorFusionEngine:
         raw_roll  = float(packet.get("imu_roll_deg", 0.0))
         raw_yaw   = float(packet.get("imu_yaw_deg", 0.0))
 
+        # 0. Donanım Bağlantı / Boşta Pin Koruması (Hardware Disconnect Guard)
+        accel_x = float(packet.get("imu_accel_x", 0.0))
+        accel_y = float(packet.get("imu_accel_y", 0.0))
+        accel_z = float(packet.get("imu_accel_z", 0.0))
+        has_mpu = not (accel_x == 0.0 and accel_y == 0.0 and accel_z == 0.0)
+
+        if not has_mpu:
+            raw_pitch = 0.0
+            raw_roll  = 0.0
+            raw_yaw   = 0.0
+
+        # sEMG Floating Pin Koruması: ADC < 150 veya ham voltaj > 10000 µV ise sensör takılı değildir
+        raw_adc = float(packet.get("semg_raw", 0.0))
+        semg_uv = float(packet.get("semg_left_uv", 0.0))
+        if raw_adc < 150 or raw_adc > 3950 or semg_uv > 10000.0:
+            semg_uv = 0.0
+            packet["semg_left_uv"] = 0.0
+            packet["semg_right_uv"] = 0.0
+            packet["semg_asymmetry_pct"] = 0.0
+
         # 1. Kalibrasyon / Tare Ofseti Uygulama
-        calibrated_pitch = round(raw_pitch - self.offset_pitch, 2)
-        calibrated_roll  = round(raw_roll - self.offset_roll, 2)
-        calibrated_yaw   = round(raw_yaw - self.offset_yaw, 2)
+        calibrated_pitch = round(raw_pitch - self.offset_pitch, 2) if has_mpu else 0.0
+        calibrated_roll  = round(raw_roll - self.offset_roll, 2) if has_mpu else 0.0
+        calibrated_yaw   = round(raw_yaw - self.offset_yaw, 2) if has_mpu else 0.0
 
         # Baseline Takibi
         if self.baseline_pitch is None:

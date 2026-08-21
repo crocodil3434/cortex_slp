@@ -100,6 +100,7 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settings, setSettings] = useState<CrocodilSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [clientStatusTab, setClientStatusTab] = useState<"aktif" | "pasif" | "tamamlandı">("aktif");
 
   useEffect(() => {
     const load = async () => {
@@ -243,7 +244,9 @@ export default function DashboardPage() {
 
         {/* İstatistik Kartları */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Users} label="Aktif Danışan" value={activeClients.length} sub={`${clients.length} toplam`} color="#0d9488" />
+          <Link href="/crocodil/danisman?status=aktif" className="block">
+            <StatCard icon={Users} label="Aktif Danışan" value={activeClients.length} sub={`${clients.length} toplam`} color="#0d9488" />
+          </Link>
           <StatCard icon={Activity} label="Bu Haftaki Seans" value={thisWeekSessions.length} sub={`${sessions.length} toplam seans`} color="#3b82f6" />
           <StatCard icon={Target} label="Aktif Hedef" value={activeGoals.length} sub={`${completedGoalsMonth.length} bu ay tamamlandı`} color="#8b5cf6" />
           <StatCard
@@ -258,8 +261,99 @@ export default function DashboardPage() {
         {/* Ana İçerik — İki Kolon */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-          {/* Sol Kolon: Yaklaşan Randevular */}
+          {/* Sol Kolon: Yaklaşan Randevular, Grafikler ve Danışan Durumları */}
           <div className="lg:col-span-2 space-y-4">
+
+            {/* Danışan Durum Dağılımı & Hızlı Yönetim Kartı */}
+            <div className="bg-white rounded-2xl border p-5" style={{ borderColor: "#e5f7f5" }}>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div className="flex items-center gap-2 font-bold text-gray-800">
+                  <Users className="w-4 h-4 text-teal-600" />
+                  Danışan Durum Dağılımı
+                </div>
+
+                {/* Durum Sekmeleri */}
+                <div className="flex rounded-xl overflow-hidden border bg-gray-50" style={{ borderColor: "#e5e7eb" }}>
+                  {(["aktif", "pasif", "tamamlandı"] as const).map((st) => {
+                    const count = clients.filter(c => c.status === st).length;
+                    const isSel = clientStatusTab === st;
+                    return (
+                      <button
+                        key={st}
+                        onClick={() => setClientStatusTab(st)}
+                        className="px-3 py-1.5 text-xs font-semibold capitalize transition-all flex items-center gap-1.5"
+                        style={{
+                          background: isSel ? "#0d9488" : "transparent",
+                          color: isSel ? "white" : "#4b5563",
+                        }}
+                      >
+                        <span>{st === "aktif" ? "Aktif" : st === "pasif" ? "Pasif" : "Tamamlandı"}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isSel ? "bg-white/20 text-white" : "bg-gray-200 text-gray-600"}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Danışan Listesi */}
+              {clients.filter(c => c.status === clientStatusTab).length === 0 ? (
+                <div className="text-center py-6 text-gray-400 text-xs">
+                  {clientStatusTab === "aktif" ? "Aktif" : clientStatusTab === "pasif" ? "Pasif" : "Tamamlandı"} durumunda kayıtlı danışan bulunmuyor.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {clients.filter(c => c.status === clientStatusTab).slice(0, 4).map(c => (
+                    <div
+                      key={c.id}
+                      onClick={() => router.push(`/crocodil/danisman/${c.id}`)}
+                      className="flex items-center justify-between p-2.5 rounded-xl border transition-all hover:bg-teal-50/30 cursor-pointer"
+                      style={{ borderColor: "#f0fdf9" }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                          style={{ background: avatarColor(c.id) }}
+                        >
+                          {c.avatarInitials ?? "??"}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-gray-800">{c.firstName} {c.lastName}</div>
+                          <div className="text-xs text-gray-400">{c.primaryDiagnosis || "Ön tanı belirtilmedi"}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-[11px] font-bold px-2 py-0.5 rounded-full border"
+                          style={{
+                            background: c.status === "aktif" ? "rgba(13,148,136,0.12)" : c.status === "pasif" ? "rgba(107,114,128,0.1)" : "rgba(16,185,129,0.1)",
+                            color: c.status === "aktif" ? "#0d9488" : c.status === "pasif" ? "#4b5563" : "#10b981",
+                            borderColor: c.status === "aktif" ? "rgba(13,148,136,0.3)" : c.status === "pasif" ? "rgba(107,114,128,0.3)" : "rgba(16,185,129,0.3)",
+                          }}
+                        >
+                          {c.status === "aktif" ? "Aktif" : c.status === "pasif" ? "Pasif" : "Tamamlandı"}
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-gray-300" />
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="pt-2 flex items-center justify-between text-xs">
+                    <span className="text-gray-400">
+                      Toplam {clients.filter(c => c.status === clientStatusTab).length} {clientStatusTab} danışan
+                    </span>
+                    <Link
+                      href={`/crocodil/danisman?status=${clientStatusTab}`}
+                      className="text-teal-600 font-semibold hover:underline flex items-center gap-1"
+                    >
+                      Tümünü Gör ({clients.filter(c => c.status === clientStatusTab).length}) →
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Yaklaşan Randevular */}
             <div className="bg-white rounded-2xl border p-5" style={{ borderColor: "#e5f7f5" }}>

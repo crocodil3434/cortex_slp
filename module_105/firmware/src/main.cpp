@@ -104,6 +104,8 @@ void setupI2S() {
     }
 }
 
+bool isMpuConnected = false;
+
 // ============================================================================
 // 2. MPU6050 I2C JİROSKOP & İVMEÖLÇER KURULUMU
 // ============================================================================
@@ -111,8 +113,10 @@ void setupMPU6050() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000); // 400 kHz Fast I2C
 
     if (!mpu.begin(0x68, &Wire)) {
-        Serial.println("[HATA] MPU6050 bulunamadi! Baglantilari kontrol edin.");
+        isMpuConnected = false;
+        Serial.println("[UYARI] MPU6050 algilanamadi / bagli degil. Kinematik acilar 0.0 olarak ayarlandi.");
     } else {
+        isMpuConnected = true;
         mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
         mpu.setGyroRange(MPU6050_RANGE_500_DEG);
         mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
@@ -138,11 +142,14 @@ void TaskSensor(void* pvParameters) {
     for (;;) {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-        // ── A. MPU6050 Kinematik Okuma ──
+        // ── A. MPU6050 Kinematik Okuma (Sadece Sensör Bağlıysa) ──
         sensors_event_t a, g, temp;
-        bool mpuSuccess = mpu.getEvent(&a, &g, &temp);
+        bool mpuSuccess = false;
+        if (isMpuConnected) {
+            mpuSuccess = mpu.getEvent(&a, &g, &temp);
+        }
 
-        if (mpuSuccess) {
+        if (mpuSuccess && isMpuConnected) {
             float accelPitch = atan2(a.acceleration.y, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.z * a.acceleration.z)) * 180.0f / PI;
             float accelRoll  = atan2(-a.acceleration.x, a.acceleration.z) * 180.0f / PI;
 
@@ -153,12 +160,25 @@ void TaskSensor(void* pvParameters) {
             pitch = alpha * (pitch + gyroPitchRate * dt) + (1.0f - alpha) * accelPitch;
             roll  = alpha * (roll  + gyroRollRate  * dt) + (1.0f - alpha) * accelRoll;
             yaw  += gyroYawRate * dt;
+        } else {
+            pitch = 0.0f;
+            roll  = 0.0f;
+            yaw   = 0.0f;
         }
 
         // ── B. AD8232 sEMG Okuma (GPIO 34) ──
+        // Donanım Koruması: AD8232 takılı değilse GPIO 34 boşta kalır ve ~0V okur.
+        // Takılı AD8232'nin istirahat ofset voltajı 1.65V (~2048 ADC) civarındadır.
+        // Sadece 150 < ADC < 3950 aralığında gerçek sEMG sinyali hesaplanır.
         int rawAdc = analogRead(PIN_SEMG_ADC);
-        float voltageMv = (rawAdc / 4095.0f) * 3300.0f;
-        float semgUv = fabsf(voltageMv - 1650.0f) * 10.0f;
+        float semgUv = 0.0f;
+        if (rawAdc > 150 && rawAdc < 3950) {
+            float voltageMv = (rawAdc / 4095.0f) * 3300.0f;
+            semgUv = fabsf(voltageMv - 1650.0f) * 10.0f;
+        } else {
+            // Sensör bağlı değil / Floating pin -> 0 µV
+            semgUv = 0.0f;
+        }
 
         // ── C. INMP441 I2S Mikrofon Okuma & Genlik Hesabı ──
         size_t bytesRead = 0;

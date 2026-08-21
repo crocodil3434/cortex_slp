@@ -10,6 +10,8 @@ import type {
   CalendarEvent,
   AIGeneratedMaterial,
   CrocodilSettings,
+  RecurringPackage,
+  RecurringPackageSlot,
 } from "./types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -159,6 +161,15 @@ export async function saveClient(client: Omit<Client, "id" | "createdAt" | "upda
 
 export async function deleteClient(id: string): Promise<void> {
   const supabase = getSupabase();
+  try {
+    await supabase.from("therapy_sessions").delete().eq("client_id", id);
+    await supabase.from("assessments").delete().eq("client_id", id);
+    await supabase.from("smart_goals").delete().eq("client_id", id);
+    await supabase.from("calendar_events").delete().eq("client_id", id);
+    await supabase.from("clinical_kinematics_assessments").delete().eq("client_id", id);
+  } catch (e) {
+    console.warn("Child cleanup warning:", e);
+  }
   const { error } = await supabase.from("clients").delete().eq("id", id);
   if (error) throw error;
 }
@@ -379,6 +390,206 @@ export async function deleteCalendarEvent(id: string): Promise<void> {
   const supabase = getSupabase();
   const { error } = await supabase.from("calendar_events").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ── Sabit Saatli Seans Paketleri (Recurring Therapy Packages) ───────────────
+const RECURRING_PACKAGES_KEY = "crocodil_recurring_packages";
+
+export async function getRecurringPackages(clientId?: string): Promise<RecurringPackage[]> {
+  try {
+    let items: RecurringPackage[] = [];
+    if (typeof window !== "undefined") {
+      const raw = localStorage.getItem(RECURRING_PACKAGES_KEY);
+      if (raw) items = JSON.parse(raw);
+    }
+    if (clientId) items = items.filter(p => p.clientId === clientId);
+    return items;
+  } catch (e) {
+    console.error("getRecurringPackages error", e);
+    return [];
+  }
+}
+
+export async function saveRecurringPackage(pkg: Omit<RecurringPackage, "id" | "createdAt" | "completedSessions"> & { id?: string }): Promise<{ package: RecurringPackage; createdEventsCount: number }> {
+  const packageId = pkg.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `pkg-${Date.now()}`);
+  const client = await getClient(pkg.clientId);
+  const clientName = client ? `${client.firstName} ${client.lastName}` : "Danışan";
+
+  const newPackage: RecurringPackage = {
+    ...pkg,
+    id: packageId,
+    createdAt: new Date().toISOString(),
+    completedSessions: 0,
+    status: pkg.status || "aktif",
+  };
+
+  // 1. Randevuları Hesapla & Takvime Ekle
+  const baseDate = new Date(pkg.startDate);
+  const createdEvents: CalendarEvent[] = [];
+  let currentSearchDate = new Date(baseDate);
+  let sessionIndex = 1;
+
+  const sortedSlots = [...pkg.timeSlots].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+
+  while (sessionIndex <= pkg.totalSessions) {
+    for (const slot of sortedSlots) {
+      if (sessionIndex > pkg.totalSessions) break;
+
+      const currentDay = currentSearchDate.getDay();
+      let diff = (slot.dayOfWeek - currentDay + 7) % 7;
+      if (diff === 0 && sessionIndex > 1) {
+        diff = 7;
+      }
+
+      const targetDate = new Date(currentSearchDate);
+      targetDate.setDate(targetDate.getDate() + diff);
+
+      const [hours, minutes] = slot.startTime.split(":").map(Number);
+      targetDate.setHours(hours || 15, minutes || 0, 0, 0);
+
+      const endDate = new Date(targetDate.getTime() + (slot.durationMinutes || 45) * 60000);
+
+      const eventTitle = `${clientName} — ${pkg.sessionType || "Terapi"} (${sessionIndex}/${pkg.totalSessions})`;
+      const eventNotes = `[Paket: ${packageId}] ${sessionIndex}/${pkg.totalSessions}. Seans. ${pkg.notes || ""}`;
+
+      const savedEvt = await saveCalendarEvent({
+        clientId: pkg.clientId,
+        title: eventTitle,
+        start: targetDate.toISOString(),
+        end: endDate.toISOString(),
+        type: "manual",
+        sessionType: pkg.sessionType || "Terapi",
+        notes: eventNotes,
+        packageId: packageId,
+        packageSessionNumber: sessionIndex,
+        totalPackageSessions: pkg.totalSessions,
+      });
+
+      createdEvents.push(savedEvt);
+      sessionIndex++;
+      currentSearchDate = new Date(targetDate);
+      currentSearchDate.setDate(currentSearchDate.getDate() + 1);
+    }
+  }
+
+  if (createdEvents.length > 0) {
+    newPackage.endDate = createdEvents[createdEvents.length - 1].start;
+  }
+
+  if (typeof window !== "undefined") {
+    const existing = await getRecurringPackages();
+    const filtered = existing.filter(p => p.id !== packageId);
+    filtered.unshift(newPackage);
+    localStorage.setItem(RECURRING_PACKAGES_KEY, JSON.stringify(filtered));
+  }
+
+  return { package: newPackage, createdEventsCount: createdEvents.length };
+}
+
+export async function extendRecurringPackage(packageId: string, additionalSessions: number = 5): Promise<RecurringPackage | null> {
+  const packages = await getRecurringPackages();
+  const pkg = packages.find(p => p.id === packageId);
+  if (!pkg) return null;
+
+  const client = await getClient(pkg.clientId);
+  const clientName = client ? `${client.firstName} ${client.lastName}` : "Danışan";
+
+  const oldTotal = pkg.totalSessions;
+  const newTotal = oldTotal + additionalSessions;
+
+  const baseDate = pkg.endDate ? new Date(pkg.endDate) : new Date();
+  baseDate.setDate(baseDate.getDate() + 1);
+
+  let currentSearchDate = new Date(baseDate);
+  let sessionIndex = oldTotal + 1;
+  const sortedSlots = [...pkg.timeSlots].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+
+  let lastEventDate = pkg.endDate;
+
+  while (sessionIndex <= newTotal) {
+    for (const slot of sortedSlots) {
+      if (sessionIndex > newTotal) break;
+
+      const currentDay = currentSearchDate.getDay();
+      let diff = (slot.dayOfWeek - currentDay + 7) % 7;
+      if (diff === 0 && sessionIndex > oldTotal + 1) diff = 7;
+
+      const targetDate = new Date(currentSearchDate);
+      targetDate.setDate(targetDate.getDate() + diff);
+
+      const [hours, minutes] = slot.startTime.split(":").map(Number);
+      targetDate.setHours(hours || 15, minutes || 0, 0, 0);
+
+      const endDate = new Date(targetDate.getTime() + (slot.durationMinutes || 45) * 60000);
+
+      const eventTitle = `${clientName} — ${pkg.sessionType || "Terapi"} (${sessionIndex}/${newTotal})`;
+      const eventNotes = `[Paket: ${packageId}] ${sessionIndex}/${newTotal}. Seans (Uzatıldı). ${pkg.notes || ""}`;
+
+      await saveCalendarEvent({
+        clientId: pkg.clientId,
+        title: eventTitle,
+        start: targetDate.toISOString(),
+        end: endDate.toISOString(),
+        type: "manual",
+        sessionType: pkg.sessionType || "Terapi",
+        notes: eventNotes,
+        packageId: packageId,
+        packageSessionNumber: sessionIndex,
+        totalPackageSessions: newTotal,
+      });
+
+      lastEventDate = targetDate.toISOString();
+      sessionIndex++;
+      currentSearchDate = new Date(targetDate);
+      currentSearchDate.setDate(currentSearchDate.getDate() + 1);
+    }
+  }
+
+  const updatedPkg: RecurringPackage = {
+    ...pkg,
+    totalSessions: newTotal,
+    endDate: lastEventDate,
+    status: "uzatıldı",
+  };
+
+  if (typeof window !== "undefined") {
+    const updatedList = packages.map(p => p.id === packageId ? updatedPkg : p);
+    localStorage.setItem(RECURRING_PACKAGES_KEY, JSON.stringify(updatedList));
+  }
+
+  return updatedPkg;
+}
+
+export async function completeRecurringPackage(packageId: string, shouldCompleteClient: boolean = false): Promise<void> {
+  const packages = await getRecurringPackages();
+  const pkg = packages.find(p => p.id === packageId);
+  if (!pkg) return;
+
+  const updatedPkg: RecurringPackage = {
+    ...pkg,
+    status: "tamamlandı",
+    completedSessions: pkg.totalSessions,
+  };
+
+  if (typeof window !== "undefined") {
+    const updatedList = packages.map(p => p.id === packageId ? updatedPkg : p);
+    localStorage.setItem(RECURRING_PACKAGES_KEY, JSON.stringify(updatedList));
+  }
+
+  if (shouldCompleteClient && pkg.clientId) {
+    const client = await getClient(pkg.clientId);
+    if (client) {
+      await saveClient({ ...client, status: "tamamlandı" });
+    }
+  }
+}
+
+export async function deleteRecurringPackage(packageId: string): Promise<void> {
+  if (typeof window !== "undefined") {
+    const packages = await getRecurringPackages();
+    const updated = packages.filter(p => p.id !== packageId);
+    localStorage.setItem(RECURRING_PACKAGES_KEY, JSON.stringify(updated));
+  }
 }
 
 // ── AI Materyalleri ───────────────────────────────────────

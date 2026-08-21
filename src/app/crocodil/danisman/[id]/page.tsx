@@ -3,8 +3,12 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { getClient, getSessions, getAssessments, getGoals, getSettings, getClientFiles, deleteClientFile, getClientFileUrl, type ClientFile } from "@/lib/crocodil/storage";
-import type { Client, TherapySession, Assessment, SMARTGoal, CrocodilSettings } from "@/lib/crocodil/types";
+import {
+  getClient, saveClient, deleteClient, getSessions, getAssessments, getGoals, getSettings,
+  getClientFiles, deleteClientFile, getClientFileUrl, type ClientFile,
+  getRecurringPackages, extendRecurringPackage, completeRecurringPackage,
+} from "@/lib/crocodil/storage";
+import type { Client, TherapySession, Assessment, SMARTGoal, CrocodilSettings, RecurringPackage } from "@/lib/crocodil/types";
 import { format, parseISO, differenceInYears } from "date-fns";
 import { tr } from "date-fns/locale";
 import { PDFDownloadLink } from "@react-pdf/renderer";
@@ -19,7 +23,6 @@ import { ClientGoalSummary } from "@/components/crocodil/ClientGoalSummary";
 import { FileUploader, getFileIcon, formatBytes } from "@/components/crocodil/FileUploader";
 import { useToast } from "@/components/crocodil/Toast";
 import { useConfirm } from "@/components/crocodil/ConfirmModal";
-import { ClinicalKinematicsForm } from "@/components/crocodil/assessment/ClinicalKinematicsForm";
 
 const COLOR_PALETTE = ["#0d9488","#3b82f6","#a855f7","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899"];
 function getAvatarColor(id: string) {
@@ -27,7 +30,7 @@ function getAvatarColor(id: string) {
   return COLOR_PALETTE[i % COLOR_PALETTE.length];
 }
 
-type TabKey = "genel" | "seanslar" | "degerlendirmeler" | "kinematik" | "belgeler";
+type TabKey = "genel" | "seanslar" | "degerlendirmeler" | "belgeler";
 
 export default function DanismanDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,6 +42,7 @@ export default function DanismanDetailPage() {
   const [settings, setSettings] = useState<CrocodilSettings | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("genel");
   const [files, setFiles] = useState<ClientFile[]>([]);
+  const [packages, setPackages] = useState<RecurringPackage[]>([]);
   const { success: toastSuccess, error: toastError } = useToast();
   const { confirm } = useConfirm();
 
@@ -60,6 +64,15 @@ export default function DanismanDetailPage() {
     }
   };
 
+  const refreshPackages = async () => {
+    if (!id) return;
+    try {
+      setPackages(await getRecurringPackages(id as string));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     if (!id) return;
     const fetchData = async () => {
@@ -72,6 +85,7 @@ export default function DanismanDetailPage() {
         setGoals(await getGoals(id as string));
         setSettings(await getSettings());
         setFiles(await getClientFiles(id as string));
+        setPackages(await getRecurringPackages(id as string));
       } catch (e) {
         console.error(e);
       }
@@ -87,6 +101,66 @@ export default function DanismanDetailPage() {
         refreshFiles();
       } catch (err: any) {
         toastError(err.message || "Dosya silinemedi");
+      }
+    }
+  };
+
+  const handleExtendPackage = async (packageId: string, count: number) => {
+    try {
+      const updated = await extendRecurringPackage(packageId, count);
+      if (updated) {
+        await refreshPackages();
+        toastSuccess(`🎉 Seans paketi +${count} seans uzatıldı ve randevular takvime işlendi!`);
+      }
+    } catch (err: any) {
+      toastError("Paket uzatılamadı: " + (err.message || ""));
+    }
+  };
+
+  const handleCompletePackage = async (packageId: string) => {
+    if (await confirm({
+      title: "Seans Paketini ve Terapiyi Tamamla",
+      message: "Bu seans paketini tamamlayıp danışanın durumunu 'Tamamlandı' olarak güncellemek istiyor musunuz?",
+    })) {
+      try {
+        await completeRecurringPackage(packageId, true);
+        const c = await getClient(id as string);
+        if (c) setClient(c);
+        await refreshPackages();
+        toastSuccess("🏆 Terapi süreci başarıyla tamamlandı!");
+      } catch (err: any) {
+        toastError("İşlem başarısız: " + (err.message || ""));
+      }
+    }
+  };
+
+  const handleStatusChange = async (newStatus: Client["status"]) => {
+    if (!client) return;
+    try {
+      const updated = await saveClient({
+        ...client,
+        status: newStatus,
+      });
+      setClient(updated);
+      toastSuccess(`Danışan durumu "${newStatus}" olarak güncellendi`);
+    } catch (err: any) {
+      toastError("Durum güncellenemedi: " + (err.message || ""));
+    }
+  };
+
+  const handleDeleteClient = async () => {
+    if (!client) return;
+    if (await confirm({
+      title: `${client.firstName} ${client.lastName} adlı danışanı silmek istiyor musunuz?`,
+      message: "Bu işlem geri alınamaz. Danışana ait tüm seanslar, değerlendirmeler, hedefler ve dosyalar kalıcı olarak silinecektir.",
+      danger: true,
+    })) {
+      try {
+        await deleteClient(client.id);
+        toastSuccess("Danışan başarıyla silindi");
+        router.push("/crocodil/danisman");
+      } catch (err: any) {
+        toastError("Danışan silinirken hata oluştu: " + (err.message || ""));
       }
     }
   };
@@ -113,7 +187,6 @@ export default function DanismanDetailPage() {
     { key: "genel", label: "Genel Bakış", icon: User },
     { key: "seanslar", label: "Seanslar", icon: Activity },
     { key: "degerlendirmeler", label: "Değerlendirmeler", icon: ClipboardList },
-    { key: "kinematik", label: "Kinematik Değerlendirme", icon: Stethoscope },
     { key: "belgeler", label: "Belgeler", icon: FileText },
   ];
 
@@ -135,9 +208,26 @@ export default function DanismanDetailPage() {
               {client.avatarInitials}
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-800">
-                {client.firstName} {client.lastName}
-              </h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-lg font-bold text-gray-800">
+                  {client.firstName} {client.lastName}
+                </h1>
+                {/* İnteraktif Durum Değiştirici */}
+                <select
+                  value={client.status}
+                  onChange={(e) => handleStatusChange(e.target.value as Client["status"])}
+                  className="text-xs font-bold px-2.5 py-0.5 rounded-full border cursor-pointer focus:outline-none transition-all shadow-sm"
+                  style={{
+                    background: client.status === "aktif" ? "rgba(13,148,136,0.12)" : client.status === "pasif" ? "rgba(107,114,128,0.1)" : "rgba(16,185,129,0.1)",
+                    color: client.status === "aktif" ? "#0d9488" : client.status === "pasif" ? "#4b5563" : "#10b981",
+                    borderColor: client.status === "aktif" ? "rgba(13,148,136,0.3)" : client.status === "pasif" ? "rgba(107,114,128,0.3)" : "rgba(16,185,129,0.3)",
+                  }}
+                >
+                  <option value="aktif">● Aktif Danışan</option>
+                  <option value="pasif">● Pasif / Askıda</option>
+                  <option value="tamamlandı">● Tamamlandı</option>
+                </select>
+              </div>
               <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                 {age !== null && <span>{age} yaş</span>}
                 {client.primaryDiagnosis && (
@@ -184,6 +274,15 @@ export default function DanismanDetailPage() {
                 AI Materyal
               </button>
             </Link>
+            <button
+              onClick={handleDeleteClient}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors hover:bg-red-50"
+              style={{ borderColor: "#fca5a5", color: "#dc2626" }}
+              title="Danışanı ve tüm kayıtlarını sil"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Sil
+            </button>
           </div>
         </div>
 
@@ -266,6 +365,122 @@ export default function DanismanDetailPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Sabit Seans Paketi Kartı */}
+            <div className="bg-white rounded-2xl p-5 border md:col-span-2" style={{ borderColor: "#e5f7f5" }}>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-600 font-bold text-sm">
+                    🔁
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-800 text-sm">Sabit Saatli Seans Paketi</h3>
+                    <p className="text-xs text-gray-400">Haftalık düzenli seans takibi ve otomatik takvim planı</p>
+                  </div>
+                </div>
+
+                <Link href={`/crocodil/takvim`}>
+                  <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border text-teal-700 bg-teal-50 border-teal-200 hover:bg-teal-100 transition-colors">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Takvimde Planla
+                  </button>
+                </Link>
+              </div>
+
+              {packages.length === 0 ? (
+                <div className="p-4 rounded-xl bg-gray-50 border border-dashed border-gray-200 text-center">
+                  <p className="text-xs text-gray-500 font-medium mb-2">Bu danışan için henüz sabit saatli bir seans paketi tanımlanmadı.</p>
+                  <Link href={`/crocodil/takvim`}>
+                    <button className="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 transition-colors">
+                      + 10 Seanslık Sabit Saat Paketi Başlat
+                    </button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {packages.map((pkg) => {
+                    const completedCount = sessions.length;
+                    const percent = Math.min(100, Math.round((completedCount / pkg.totalSessions) * 100));
+                    const isNearOrFinished = completedCount >= pkg.totalSessions;
+                    const DAYS_MAP: Record<number, string> = { 1: "Pzt", 2: "Sal", 3: "Çrş", 4: "Per", 5: "Cum", 6: "Cmt", 0: "Paz" };
+
+                    return (
+                      <div key={pkg.id} className="p-4 rounded-xl border bg-teal-50/20" style={{ borderColor: "#ccfbf1" }}>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-gray-800">{pkg.sessionType || "Terapi"} Paketi</span>
+                              <span
+                                className="text-[10px] font-bold px-2 py-0.5 rounded-full border"
+                                style={{
+                                  background: pkg.status === "tamamlandı" ? "#10b98115" : "#0d948815",
+                                  color: pkg.status === "tamamlandı" ? "#10b981" : "#0d9488",
+                                  borderColor: pkg.status === "tamamlandı" ? "#10b98130" : "#0d948830",
+                                }}
+                              >
+                                {pkg.status === "tamamlandı" ? "✓ Tamamlandı" : pkg.status === "uzatıldı" ? "🔁 Uzatıldı" : "● Aktif Paket"}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1 flex items-center gap-3">
+                              <span>⏰ Sabit Günler: <strong>{pkg.timeSlots.map(s => `${DAYS_MAP[s.dayOfWeek] || ""} ${s.startTime}`).join(", ")}</strong></span>
+                              <span>⏱️ {pkg.timeSlots[0]?.durationMinutes || 45} dk</span>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <span className="text-base font-extrabold text-teal-700">{completedCount}</span>
+                            <span className="text-xs text-gray-400"> / {pkg.totalSessions} Seans</span>
+                          </div>
+                        </div>
+
+                        {/* İlerleme Çubuğu */}
+                        <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden mb-3">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${percent}%`,
+                              background: percent >= 100 ? "linear-gradient(90deg, #10b981, #059669)" : "linear-gradient(90deg, #0d9488, #14b8a6)",
+                            }}
+                          />
+                        </div>
+
+                        {/* Aksiyon Butonları (Uzatma & Tamamlama) */}
+                        <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-teal-100">
+                          <div className="text-xs text-gray-500">
+                            {isNearOrFinished ? (
+                              <span className="text-amber-600 font-semibold">⚠️ Paket süresi doldu / dolmak üzere!</span>
+                            ) : (
+                              <span>Kalan Seans: <strong>{Math.max(0, pkg.totalSessions - completedCount)}</strong></span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleExtendPackage(pkg.id, 5)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-semibold border bg-white border-teal-300 text-teal-700 hover:bg-teal-50 transition-colors shadow-sm"
+                            >
+                              +5 Seans Uzat
+                            </button>
+                            <button
+                              onClick={() => handleExtendPackage(pkg.id, 10)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-semibold border bg-white border-teal-300 text-teal-700 hover:bg-teal-50 transition-colors shadow-sm"
+                            >
+                              +10 Seans Uzat
+                            </button>
+                            <button
+                              onClick={() => handleCompletePackage(pkg.id)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm"
+                            >
+                              ✓ Terapiyi Tamamla
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Hedef Özeti */}
@@ -439,13 +654,6 @@ export default function DanismanDetailPage() {
                 )}
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Kinematik ve Nöromotor Değerlendirme Formu Sekmesi */}
-        {activeTab === "kinematik" && (
-          <div className="max-w-4xl mx-auto">
-            <ClinicalKinematicsForm clientId={client.id} client={client} />
           </div>
         )}
 

@@ -102,6 +102,31 @@ export async function getNotifications(): Promise<AppNotification[]> {
       });
     }
 
+    // 6. Sabit Saatli Seans Paketi Tamamlanma / Uzatma Bildirimleri
+    try {
+      const { getRecurringPackages } = await import("./storage");
+      const packages = await getRecurringPackages();
+      packages.filter(p => p.status === "aktif" || p.status === "uzatıldı").forEach(pkg => {
+        const client = clients.find(c => c.id === pkg.clientId);
+        const clientSessions = sessions.filter(s => s.clientId === pkg.clientId);
+        const isEndReached = pkg.endDate ? isPast(parseISO(pkg.endDate)) || isToday(parseISO(pkg.endDate)) : false;
+        const isSessionsCompleted = clientSessions.length >= pkg.totalSessions;
+
+        if (isEndReached || isSessionsCompleted) {
+          notifications.push({
+            id: `package-completed-${pkg.id}`,
+            type: "warning",
+            title: "Seans Paketi Tamamlandı",
+            message: `${client?.firstName || "Danışan"} için ${pkg.totalSessions} seanslık ${pkg.sessionType || "Terapi"} paketi tamamlandı! Paketi uzatabilir veya danışanı mezun edebilirsiniz.`,
+            link: `/crocodil/danisman/${pkg.clientId}`,
+            date: pkg.endDate ? parseISO(pkg.endDate) : new Date()
+          });
+        }
+      });
+    } catch {
+      // sessiz
+    }
+
   } catch (err: unknown) {
     // Supabase PGRST303 "JWT issued at future" — saat senkronizasyon farkından
     // kaynaklanan geçici bir token hatası. Bildirim yüklenemedi, sessizce devam et.

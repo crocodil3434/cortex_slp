@@ -77,6 +77,33 @@ export interface CalendarEvent {
   notes?: string;
   googleEventId?: string;
   color?: string;
+  packageId?: string; // Bağlı olduğu seans paketi ID'si
+  packageSessionNumber?: number; // Örn: 1 (1. seans)
+  totalPackageSessions?: number; // Örn: 10 (10 seanslık paket)
+}
+
+// ──────────────────────────────────────────
+// SABİT SAATLİ SEANS PAKETİ (RECURRING THERAPY PACKAGE)
+// ──────────────────────────────────────────
+export interface RecurringPackageSlot {
+  dayOfWeek: number; // 1: Pazartesi, 2: Salı, 3: Çarşamba, 4: Perşembe, 5: Cuma, 6: Cumartesi, 0: Pazar
+  startTime: string; // "15:00"
+  durationMinutes: number; // 45
+}
+
+export interface RecurringPackage {
+  id: string;
+  clientId: string;
+  createdAt: string;
+  sessionType: string;
+  totalSessions: number; // Örn: 10
+  completedSessions: number; // Tamamlanan seans sayısı
+  frequency: "haftada-1" | "haftada-2" | "haftada-3" | "2-haftada-1";
+  timeSlots: RecurringPackageSlot[];
+  startDate: string; // ISO datetime
+  endDate?: string;
+  status: "aktif" | "tamamlandı" | "uzatıldı" | "iptal";
+  notes?: string;
 }
 
 // ──────────────────────────────────────────

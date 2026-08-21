@@ -1,14 +1,20 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { getClients } from "@/lib/crocodil/storage";
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import { getClients, saveClient, deleteClient } from "@/lib/crocodil/storage";
 import type { Client } from "@/lib/crocodil/types";
-import { Search, Plus, Filter, Users, ChevronRight, Calendar, Clock, AlertCircle, LayoutGrid, List } from "lucide-react";
+import {
+  Search, Plus, Filter, Users, ChevronRight, Calendar,
+  Clock, AlertCircle, LayoutGrid, List, Trash2, CheckCircle2,
+  MoreVertical, Edit, Sparkles
+} from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import Link from "next/link";
+import { useToast } from "@/components/crocodil/Toast";
+import { useConfirm } from "@/components/crocodil/ConfirmModal";
 
 const STATUS_CONFIG = {
   aktif: { label: "Aktif", bg: "rgba(13,148,136,0.12)", color: "#0d9488", border: "rgba(13,148,136,0.3)" },
@@ -25,96 +31,65 @@ function getAvatarColor(id: string) {
   return COLOR_PALETTE[i % COLOR_PALETTE.length];
 }
 
-function ClientCard({ client, onClick }: { client: Client; onClick: () => void }) {
-  const color = getAvatarColor(client.id);
-  const status = STATUS_CONFIG[client.status];
-  const age = client.birthDate
-    ? Math.floor((Date.now() - new Date(client.birthDate).getTime()) / 31557600000)
-    : null;
-
-  return (
-    <motion.div
-      whileHover={{ y: -2, boxShadow: "0 8px 25px rgba(0,0,0,0.08)" }}
-      whileTap={{ scale: 0.99 }}
-      onClick={onClick}
-      className="bg-white rounded-2xl p-4 border cursor-pointer transition-all"
-      style={{ borderColor: "#f0fdf9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
-    >
-      <div className="flex items-start gap-3">
-        {/* Avatar */}
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-          style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}
-        >
-          {client.avatarInitials ?? "??"}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="font-semibold text-gray-800 truncate">
-                {client.firstName} {client.lastName}
-              </h3>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                {age !== null && (
-                  <span className="text-xs text-gray-400">{age} yaş</span>
-                )}
-                {client.primaryDiagnosis && (
-                  <>
-                    <span className="text-gray-200">·</span>
-                    <span className="text-xs text-gray-500 truncate max-w-[180px]">
-                      {client.primaryDiagnosis}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-1.5">
-              <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full border"
-                style={{ background: status.bg, color: status.color, borderColor: status.border }}
-              >
-                {status.label}
-              </span>
-              <ChevronRight className="w-4 h-4 text-gray-300" />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-            {client.referralSource && (
-              <div className="flex items-center gap-1">
-                <Users className="w-3 h-3" />
-                <span className="truncate max-w-[120px]">{client.referralSource}</span>
-              </div>
-            )}
-            {client.createdAt && (
-              <div className="flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                <span>{format(parseISO(client.createdAt), "d MMM yy", { locale: tr })}</span>
-              </div>
-            )}
-            {client.googleCalendarLinked && (
-              <div className="flex items-center gap-1">
-                <span className="text-blue-400">🔵 Google</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-export default function DanismanListePage() {
+function DanismanListeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialStatus = (searchParams.get("status") as Client["status"]) || "tümü";
+
   const [clients, setClients] = useState<Client[]>([]);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"tümü" | Client["status"]>("tümü");
+  const [statusFilter, setStatusFilter] = useState<"tümü" | Client["status"]>(initialStatus);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
+
+  const loadClients = async () => {
+    try {
+      const data = await getClients();
+      setClients(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
-    getClients().then(setClients);
+    loadClients();
   }, []);
+
+  // Hızlı Durum Değiştirme
+  const handleQuickStatusChange = async (e: React.MouseEvent, client: Client, newStatus: Client["status"]) => {
+    e.stopPropagation();
+    try {
+      const updated = await saveClient({ ...client, status: newStatus });
+      setClients((prev) => prev.map((c) => (c.id === client.id ? updated : c)));
+      toastSuccess(`${client.firstName} durumu "${newStatus}" olarak güncellendi`);
+    } catch (err: any) {
+      toastError("Durum güncellenemedi: " + (err.message || ""));
+    }
+  };
+
+  // Hızlı Danışan Silme
+  const handleDeleteClient = async (e: React.MouseEvent, client: Client) => {
+    e.stopPropagation();
+    if (await confirm({
+      title: `${client.firstName} ${client.lastName} adlı danışanı silmek istiyor musunuz?`,
+      message: "Bu işlem geri alınamaz. Danışana ait tüm seanslar, değerlendirmeler, hedefler ve dosyalar kalıcı olarak silinecektir.",
+      danger: true,
+    })) {
+      try {
+        await deleteClient(client.id);
+        setClients((prev) => prev.filter((c) => c.id !== client.id));
+        toastSuccess("Danışan başarıyla silindi");
+      } catch (err: any) {
+        toastError("Danışan silinirken hata oluştu: " + (err.message || ""));
+      }
+    }
+  };
+
+  const activeCount = clients.filter((c) => c.status === "aktif").length;
+  const passiveCount = clients.filter((c) => c.status === "pasif").length;
+  const completedCount = clients.filter((c) => c.status === "tamamlandı").length;
 
   const filtered = clients.filter((c) => {
     const q = query.toLowerCase();
@@ -134,7 +109,9 @@ export default function DanismanListePage() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h1 className="text-xl font-bold text-gray-800">Danışanlar</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{clients.filter((c) => c.status === "aktif").length} aktif · {clients.length} toplam</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {activeCount} aktif · {passiveCount} pasif · {completedCount} tamamlandı · {clients.length} toplam
+            </p>
           </div>
           <Link href="/crocodil/danisman/yeni">
             <motion.button
@@ -157,28 +134,45 @@ export default function DanismanListePage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ad, tanı veya sevk kaynağı ara..."
+              placeholder="Ad, soyad veya tanı ara..."
               className="w-full pl-9 pr-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-teal-400 transition-colors"
               style={{ borderColor: "#e5e7eb" }}
             />
           </div>
+
           <div className="flex flex-wrap gap-2">
-            <div className="flex rounded-xl overflow-hidden border" style={{ borderColor: "#e5e7eb" }}>
-              {(["tümü", "aktif", "pasif", "tamamlandı"] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatusFilter(s)}
-                  className="px-3 py-2 text-xs font-medium capitalize transition-all"
-                  style={{
-                    background: statusFilter === s ? "#0d9488" : "transparent",
-                    color: statusFilter === s ? "white" : "#6b7280",
-                  }}
-                >
-                  {s === "tümü" ? "Tümü" : STATUS_CONFIG[s].label}
-                </button>
-              ))}
+            {/* İnteraktif Durum Filtre Butonları */}
+            <div className="flex rounded-xl overflow-hidden border bg-white" style={{ borderColor: "#e5e7eb" }}>
+              {[
+                { key: "tümü", label: "Tümü", count: clients.length },
+                { key: "aktif", label: "Aktif", count: activeCount },
+                { key: "pasif", label: "Pasif", count: passiveCount },
+                { key: "tamamlandı", label: "Tamamlandı", count: completedCount },
+              ].map((tab) => {
+                const isSelected = statusFilter === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setStatusFilter(tab.key as any)}
+                    className="px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1.5"
+                    style={{
+                      background: isSelected ? "#0d9488" : "transparent",
+                      color: isSelected ? "white" : "#4b5563",
+                    }}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                        isSelected ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            
+
             {/* Görünüm Geçişi */}
             <div className="flex rounded-xl overflow-hidden border bg-white" style={{ borderColor: "#e5e7eb" }}>
               <button
@@ -207,7 +201,7 @@ export default function DanismanListePage() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="text-5xl mb-4">👥</div>
             <p className="font-medium text-gray-600">
-              {query ? "Arama sonucu bulunamadı" : "Henüz danışan yok"}
+              {query ? "Arama sonucu bulunamadı" : "Seçili filtrede danışan bulunamadı"}
             </p>
             <p className="text-sm text-gray-400 mt-1">
               {query ? "Farklı bir arama terimi deneyin" : "Yeni danışan ekleyerek başlayın"}
@@ -228,19 +222,104 @@ export default function DanismanListePage() {
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {filtered.map((client, i) => (
-              <motion.div
-                key={client.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-              >
-                <ClientCard
-                  client={client}
+            {filtered.map((client, i) => {
+              const color = getAvatarColor(client.id);
+              const status = STATUS_CONFIG[client.status];
+              const age = client.birthDate
+                ? Math.floor((Date.now() - new Date(client.birthDate).getTime()) / 31557600000)
+                : null;
+
+              return (
+                <motion.div
+                  key={client.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.03 }}
                   onClick={() => router.push(`/crocodil/danisman/${client.id}`)}
-                />
-              </motion.div>
-            ))}
+                  className="bg-white rounded-2xl p-4 border cursor-pointer transition-all hover:shadow-md group relative"
+                  style={{ borderColor: "#f0fdf9" }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                      style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}
+                    >
+                      {client.avatarInitials ?? "??"}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-gray-800 truncate group-hover:text-teal-600 transition-colors">
+                            {client.firstName} {client.lastName}
+                          </h3>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {age !== null && <span className="text-xs text-gray-400">{age} yaş</span>}
+                            {client.primaryDiagnosis && (
+                              <>
+                                <span className="text-gray-200">·</span>
+                                <span className="text-xs text-gray-500 truncate max-w-[150px]">
+                                  {client.primaryDiagnosis}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Durum Seçici Dropdown */}
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={client.status}
+                            onChange={(e) => handleQuickStatusChange(e as any, client, e.target.value as any)}
+                            className="text-xs font-bold px-2 py-0.5 rounded-full border cursor-pointer focus:outline-none transition-all"
+                            style={{
+                              background: status.bg,
+                              color: status.color,
+                              borderColor: status.border,
+                            }}
+                          >
+                            <option value="aktif">Aktif</option>
+                            <option value="pasif">Pasif</option>
+                            <option value="tamamlandı">Tamamlandı</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-3 text-xs text-gray-400 pt-2 border-t border-gray-50">
+                        <div className="flex items-center gap-2">
+                          {client.createdAt && (
+                            <span className="text-[11px]">
+                              {format(parseISO(client.createdAt), "d MMM yy", { locale: tr })}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Hızlı Butonlar */}
+                        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/crocodil/danisman/${client.id}/duzenle`);
+                            }}
+                            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                            title="Düzenle"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteClient(e, client)}
+                            className="p-1 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Danışanı Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         ) : (
           <div className="bg-white rounded-2xl border overflow-hidden shadow-sm" style={{ borderColor: "#f0fdf9" }}>
@@ -253,6 +332,7 @@ export default function DanismanListePage() {
                     <th className="px-5 py-3">Ön Tanı</th>
                     <th className="px-5 py-3">Kayıt Tarihi</th>
                     <th className="px-5 py-3">Durum</th>
+                    <th className="px-5 py-3 text-right">İşlemler</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-sm" style={{ borderColor: "#f9fafb" }}>
@@ -260,10 +340,10 @@ export default function DanismanListePage() {
                     const status = STATUS_CONFIG[client.status];
                     const color = getAvatarColor(client.id);
                     const age = client.birthDate ? Math.floor((Date.now() - new Date(client.birthDate).getTime()) / 31557600000) : null;
-                    
+
                     return (
-                      <tr 
-                        key={client.id} 
+                      <tr
+                        key={client.id}
                         onClick={() => router.push(`/crocodil/danisman/${client.id}`)}
                         className="hover:bg-teal-50/30 cursor-pointer transition-colors"
                       >
@@ -289,13 +369,39 @@ export default function DanismanListePage() {
                         <td className="px-5 py-3 text-gray-500">
                           {client.createdAt ? format(parseISO(client.createdAt), "d MMM yyyy", { locale: tr }) : "—"}
                         </td>
-                        <td className="px-5 py-3">
-                          <span
-                            className="inline-flex items-center text-xs font-medium px-2 py-1 rounded-full border"
-                            style={{ background: status.bg, color: status.color, borderColor: status.border }}
+                        <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={client.status}
+                            onChange={(e) => handleQuickStatusChange(e as any, client, e.target.value as any)}
+                            className="text-xs font-bold px-2 py-1 rounded-full border cursor-pointer focus:outline-none transition-all"
+                            style={{
+                              background: status.bg,
+                              color: status.color,
+                              borderColor: status.border,
+                            }}
                           >
-                            {status.label}
-                          </span>
+                            <option value="aktif">Aktif</option>
+                            <option value="pasif">Pasif</option>
+                            <option value="tamamlandı">Tamamlandı</option>
+                          </select>
+                        </td>
+                        <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => router.push(`/crocodil/danisman/${client.id}/duzenle`)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                              title="Düzenle"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteClient(e, client)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title="Danışanı Sil"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -307,5 +413,13 @@ export default function DanismanListePage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function DanismanListePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-400">Yükleniyor...</div>}>
+      <DanismanListeContent />
+    </Suspense>
   );
 }

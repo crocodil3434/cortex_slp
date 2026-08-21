@@ -267,7 +267,7 @@ export function ClinicalKinematicsForm({
   client,
 }: {
   clientId: string;
-  client: Client;
+  client?: Client;
 }) {
   const { success: toastSuccess, error: toastError } = useToast();
   const [responses, setResponses] = useState<Record<string, ItemResponse>>({});

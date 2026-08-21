@@ -11,6 +11,7 @@ import {
   KpiCard, LiveAreaChart, DualSEMGBar,
   RespirationCanvas, ZScoreBar, PhaseBadge,
 } from "./ChartPrimitives";
+import { VsaCalibrationGame } from "./VsaCalibrationGame";
 import type { SensorPacket } from "@/lib/crocodil/useM105Stream";
 
 // ── Evrensel Nöromotor Fonksiyon Basamakları ──────────────────────────────────
@@ -476,8 +477,11 @@ export function CliniciansView({
               💡 <strong>Klinik Not:</strong> Yapısal istirahat aşamasında time-series dalga formu yerine statik kranial simetri, postüral hizalanma ve interoklüzal aralık stabilitesi değerlendirilir.
             </div>
           </div>
+        ) : selectedLevel === 5 ? (
+          /* Basamak V: Lingual Artikülasyon -> VSA (Vowel Space Area) Kalibrasyon Oyunu */
+          <VsaCalibrationGame />
         ) : (
-          /* Dinamik Zaman Serisi Dalga Formu Grafiği (Basamak 1 - 7) */
+          /* Dinamik Zaman Serisi Dalga Formu Grafiği (Basamak 1, 2, 3, 4, 6, 7) */
           <div
             style={{
               padding: 14,

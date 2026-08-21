@@ -3,7 +3,8 @@ import React, { useState } from "react";
 import type { AssessmentFormProps } from "./shared";
 import { LABEL, INPUT, SECTION, SECTION_TITLE, TEXTAREA, CheckboxGroup, SaveBar } from "./shared";
 import Link from "next/link";
-import { Radio, Sparkles, Activity, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Radio, Sparkles, Activity, ShieldAlert, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { ClinicalKinematicsForm } from "./ClinicalKinematicsForm";
 
 // ── Dizartri Alt Tipleri (Darley, Aronson & Brown Sınıflandırması) ───────────
 const DYSARTHRIA_TYPES = [
@@ -64,6 +65,7 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
     notes: "",
   });
 
+  const [showKinematics, setShowKinematics] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -420,6 +422,70 @@ export default function MotorSpeechForm({ assessment, onSave }: AssessmentFormPr
             style={{ borderColor: "#e5e7eb" }}
           />
         </div>
+      </div>
+
+      {/* ── 3. KLİNİK KİNEMATİK VE BİYOMEKANİK DEĞERLENDİRME ENTEGRASYONU ── */}
+      <div className="rounded-2xl border transition-all overflow-hidden shadow-sm"
+        style={{
+          borderColor: showKinematics ? "#0d9488" : "#fed7aa",
+          background: showKinematics ? "#f8fffe" : "white"
+        }}
+      >
+        <div
+          onClick={() => setShowKinematics(!showKinematics)}
+          className="p-4 flex items-center justify-between cursor-pointer hover:bg-orange-50/30 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-base font-bold shadow-inner"
+              style={{
+                background: showKinematics ? "linear-gradient(135deg, #0d9488, #134e4a)" : "#ffedd5",
+                color: showKinematics ? "white" : "#ea580c"
+              }}
+            >
+              📐
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-bold text-gray-800 text-sm">Kinematik ve Biyomekanik Değerlendirme (Modül 105)</h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-orange-50 text-orange-700 border-orange-200">
+                  Opsiyonel / İleri Seviye
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Maksillofasiyal yapısal analiz, 7 basamaklı çene kinematiği ve sensör skorlarını bu değerlendirmeye dahil edin
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setShowKinematics(!showKinematics); }}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm flex-shrink-0"
+            style={{
+              background: showKinematics ? "#0d9488" : "linear-gradient(135deg, #ea580c, #c2410c)",
+              color: "white",
+              borderColor: showKinematics ? "#0d9488" : "#ea580c",
+            }}
+          >
+            {showKinematics ? (
+              <>
+                <ChevronUp className="w-3.5 h-3.5" />
+                Kinematiği Gizle
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-3.5 h-3.5" />
+                + Kinematik Değerlendirme Ekle
+              </>
+            )}
+          </button>
+        </div>
+
+        {showKinematics && (
+          <div className="p-4 border-t bg-white" style={{ borderColor: "#e5f7f5" }}>
+            <ClinicalKinematicsForm clientId={assessment.clientId} />
+          </div>
+        )}
       </div>
 
       <SaveBar onSave={handleSave} saving={saving} />

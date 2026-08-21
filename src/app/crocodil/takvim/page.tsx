@@ -18,6 +18,7 @@ import { useToast } from "@/components/crocodil/Toast";
 import { useConfirm } from "@/components/crocodil/ConfirmModal";
 import {
   getCalendarEvents, getClients, saveCalendarEvent, deleteCalendarEvent,
+  saveRecurringPackage, getRecurringPackages,
 } from "@/lib/crocodil/storage";
 import type { CalendarEvent, Client } from "@/lib/crocodil/types";
 import { syncGoogleCalendar } from "@/lib/crocodil/google-calendar";
@@ -146,21 +147,42 @@ function EventDetailPanel({ event, clients, onClose, onDelete, onEdit }: {
 }
 
 // ── Randevu Modalı ────────────────────────────────────────────
-function EventModal({ open, onClose, onSave, clients, defaultDate, editEvent }: {
+// ── Randevu & Seans Paketi Modalı ────────────────────────────
+function EventModal({ open, onClose, onSave, onPackageCreated, clients, defaultDate, editEvent }: {
   open: boolean; onClose: () => void;
   onSave: (data: Omit<CalendarEvent, "id"> & { id?: string }) => Promise<void>;
+  onPackageCreated?: () => Promise<void>;
   clients: Client[]; defaultDate?: string; editEvent?: CalendarEvent | null;
 }) {
+  const [modalMode, setModalMode] = useState<"single" | "package">("single");
+
+  // Tek Seferlik Form
   const [form, setForm] = useState({
     title: "", clientId: "",
     date: defaultDate ?? new Date().toISOString().split("T")[0],
     time: "09:00", duration: 45, sessionType: "Terapi", notes: "",
   });
+
+  // Sabit Seans Paketi Formu
+  const [pkgForm, setPkgForm] = useState({
+    clientId: "",
+    sessionType: "Terapi",
+    totalSessions: 10,
+    frequency: "haftada-1" as "haftada-1" | "haftada-2" | "haftada-3" | "2-haftada-1",
+    selectedDays: [1], // 1: Pazartesi
+    time: "15:00",
+    duration: 45,
+    startDate: defaultDate ?? new Date().toISOString().split("T")[0],
+    notes: "",
+  });
+
   const [saving, setSaving] = useState(false);
+  const { success: toastSuccess, error: toastError } = useToast();
 
   useEffect(() => {
     if (open) {
       if (editEvent) {
+        setModalMode("single");
         const s = parseISO(editEvent.start);
         const e = parseISO(editEvent.end);
         setForm({
@@ -171,132 +193,384 @@ function EventModal({ open, onClose, onSave, clients, defaultDate, editEvent }: 
         });
       } else {
         setForm(f => ({ ...f, date: defaultDate ?? f.date, title: "", clientId: "", notes: "" }));
+        setPkgForm(f => ({ ...f, startDate: defaultDate ?? f.startDate, clientId: "" }));
       }
     }
   }, [open, editEvent, defaultDate]);
 
-  const handleSave = async () => {
+  // Tek Seferlik Kaydet
+  const handleSaveSingle = async () => {
     setSaving(true);
-    const start = new Date(`${form.date}T${form.time}`).toISOString();
-    const end = new Date(new Date(`${form.date}T${form.time}`).getTime() + form.duration * 60000).toISOString();
-    const client = clients.find(c => c.id === form.clientId);
-    await onSave({
-      ...(editEvent ? { id: editEvent.id } : {}),
-      title: form.title || (client ? `${client.firstName} ${client.lastName}` : "Randevu"),
-      clientId: form.clientId || undefined,
-      start, end, type: "manual",
-      sessionType: form.sessionType,
-      notes: form.notes || undefined,
-    });
-    setSaving(false);
-    onClose();
+    try {
+      const start = new Date(`${form.date}T${form.time}`).toISOString();
+      const end = new Date(new Date(`${form.date}T${form.time}`).getTime() + form.duration * 60000).toISOString();
+      const client = clients.find(c => c.id === form.clientId);
+      await onSave({
+        ...(editEvent ? { id: editEvent.id } : {}),
+        title: form.title || (client ? `${client.firstName} ${client.lastName}` : "Randevu"),
+        clientId: form.clientId || undefined,
+        start, end, type: "manual",
+        sessionType: form.sessionType,
+        notes: form.notes || undefined,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // Seans Paketi Kaydet
+  const handleSavePackage = async () => {
+    if (!pkgForm.clientId) {
+      toastError("Lütfen bir danışan seçin!");
+      return;
+    }
+    if (pkgForm.selectedDays.length === 0) {
+      toastError("Lütfen en az 1 seans günü seçin!");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const slots = pkgForm.selectedDays.map(day => ({
+        dayOfWeek: day,
+        startTime: pkgForm.time,
+        durationMinutes: pkgForm.duration,
+      }));
+
+      const res = await saveRecurringPackage({
+        clientId: pkgForm.clientId,
+        sessionType: pkgForm.sessionType,
+        totalSessions: pkgForm.totalSessions,
+        frequency: pkgForm.frequency,
+        timeSlots: slots,
+        startDate: pkgForm.startDate,
+        notes: pkgForm.notes,
+        status: "aktif",
+      });
+
+      toastSuccess(`🎉 ${res.createdEventsCount} seanslık paket takvime başarıyla işlendi!`);
+      if (onPackageCreated) await onPackageCreated();
+      onClose();
+    } catch (err: any) {
+      toastError("Paket oluşturulurken hata: " + (err.message || ""));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Gün hesaplayıcı önizleme
+  const previewDates = useMemo(() => {
+    if (modalMode !== "package" || pkgForm.selectedDays.length === 0) return [];
+    const dates: { index: number; dateStr: string; dayName: string }[] = [];
+    const baseDate = new Date(pkgForm.startDate);
+    let cur = new Date(baseDate);
+    let count = 1;
+    const sortedDays = [...pkgForm.selectedDays].sort((a, b) => a - b);
+
+    while (count <= Math.min(pkgForm.totalSessions, 12)) {
+      for (const d of sortedDays) {
+        if (count > Math.min(pkgForm.totalSessions, 12)) break;
+        const curDay = cur.getDay();
+        let diff = (d - curDay + 7) % 7;
+        if (diff === 0 && count > 1) diff = 7;
+        const target = new Date(cur);
+        target.setDate(target.getDate() + diff);
+
+        dates.push({
+          index: count,
+          dateStr: format(target, "d MMMM yyyy", { locale: tr }),
+          dayName: format(target, "EEEE", { locale: tr }),
+        });
+        count++;
+        cur = new Date(target);
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+    return dates;
+  }, [modalMode, pkgForm.startDate, pkgForm.selectedDays, pkgForm.totalSessions]);
+
   if (!open) return null;
-  const color = SESSION_COLORS[form.sessionType]?.border ?? "#0d9488";
+  const color = modalMode === "single"
+    ? (SESSION_COLORS[form.sessionType]?.border ?? "#0d9488")
+    : "#0d9488";
   const LABEL = "text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5";
   const INPUT = "w-full border rounded-xl px-3 py-2 text-sm focus:outline-none transition-colors";
+
+  const DAYS_LIST = [
+    { id: 1, name: "Pzt" }, { id: 2, name: "Sal" }, { id: 3, name: "Çrş" },
+    { id: 4, name: "Per" }, { id: 5, name: "Cum" }, { id: 6, name: "Cmt" }, { id: 0, name: "Paz" }
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
       >
-        <div className="px-6 py-4 flex items-center justify-between border-b-2" style={{ borderColor: `${color}30`, background: `${color}0a` }}>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ background: color }} />
-            <span className="font-bold text-gray-800">{editEvent ? "Etkinliği Düzenle" : "Yeni Randevu"}</span>
+        {/* Modal Başlığı & Mod Seçici */}
+        <div className="px-6 py-4 border-b-2" style={{ borderColor: `${color}30`, background: `${color}0a` }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ background: color }} />
+              <span className="font-bold text-gray-800 text-base">
+                {editEvent ? "Randevuyu Düzenle" : "Randevu / Seans Planlama"}
+              </span>
+            </div>
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/60 transition-colors">
+              <X className="w-4 h-4 text-gray-500" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/60 transition-colors">
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
+
+          {/* Sekme Seçici (Yeni Randevu İse) */}
+          {!editEvent && (
+            <div className="flex rounded-xl overflow-hidden border bg-white p-0.5 mt-2" style={{ borderColor: "#e5e7eb" }}>
+              <button
+                onClick={() => setModalMode("single")}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  modalMode === "single" ? "bg-teal-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                📅 Tek Seferlik Randevu
+              </button>
+              <button
+                onClick={() => setModalMode("package")}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  modalMode === "package" ? "bg-teal-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                🔁 Sabit Saatli Seans Paketi
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
-          <div>
-            <label className={LABEL}>Seans Türü</label>
-            <div className="flex flex-wrap gap-2">
-              {SESSION_TYPES.map(t => (
-                <button key={t} onClick={() => setForm(f => ({ ...f, sessionType: t }))}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-                  style={{
-                    background: form.sessionType === t ? SESSION_COLORS[t]?.border : "white",
-                    borderColor: form.sessionType === t ? SESSION_COLORS[t]?.border : "#e5e7eb",
-                    color: form.sessionType === t ? "white" : "#6b7280",
-                  }}>{t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className={LABEL}>Danışan</label>
-            <select value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
-              className={INPUT} style={{ borderColor: "#e5e7eb" }}>
-              <option value="">— Danışan seçin (opsiyonel) —</option>
-              {clients.filter(c => c.status === "aktif").map(c => (
-                <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className={LABEL}>Başlık (opsiyonel)</label>
-            <input type="text" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="Boş bırakılırsa danışan adı kullanılır"
-              className={INPUT} style={{ borderColor: "#e5e7eb" }} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+        {/* ── MOD 1: TEK SEFERLİK RANDEVU ──────────────────────────────────── */}
+        {modalMode === "single" ? (
+          <div className="p-6 space-y-4 overflow-y-auto max-h-[65vh]">
             <div>
-              <label className={LABEL}>Tarih</label>
-              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+              <label className={LABEL}>Seans Türü</label>
+              <div className="flex flex-wrap gap-2">
+                {SESSION_TYPES.map(t => (
+                  <button key={t} onClick={() => setForm(f => ({ ...f, sessionType: t }))}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+                    style={{
+                      background: form.sessionType === t ? SESSION_COLORS[t]?.border : "white",
+                      borderColor: form.sessionType === t ? SESSION_COLORS[t]?.border : "#e5e7eb",
+                      color: form.sessionType === t ? "white" : "#6b7280",
+                    }}>{t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className={LABEL}>Danışan</label>
+              <select value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                className={INPUT} style={{ borderColor: "#e5e7eb" }}>
+                <option value="">— Danışan seçin (opsiyonel) —</option>
+                {clients.filter(c => c.status === "aktif").map(c => (
+                  <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={LABEL}>Başlık (opsiyonel)</label>
+              <input type="text" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="Boş bırakılırsa danışan adı kullanılır"
                 className={INPUT} style={{ borderColor: "#e5e7eb" }} />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={LABEL}>Tarih</label>
+                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  className={INPUT} style={{ borderColor: "#e5e7eb" }} />
+              </div>
+              <div>
+                <label className={LABEL}>Saat</label>
+                <input type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+                  className={INPUT} style={{ borderColor: "#e5e7eb" }} />
+              </div>
+            </div>
+
             <div>
-              <label className={LABEL}>Saat</label>
-              <input type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
-                className={INPUT} style={{ borderColor: "#e5e7eb" }} />
+              <label className={LABEL}>Süre</label>
+              <div className="flex gap-2">
+                {[30, 45, 60, 90].map(d => (
+                  <button key={d} onClick={() => setForm(f => ({ ...f, duration: d }))}
+                    className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                    style={{
+                      background: form.duration === d ? color : "white",
+                      borderColor: form.duration === d ? color : "#e5e7eb",
+                      color: form.duration === d ? "white" : "#6b7280",
+                    }}>{d} dk
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className={LABEL}>Not (opsiyonel)</label>
+              <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                rows={2} placeholder="Kısa not ekleyin..."
+                className={INPUT + " resize-none"} style={{ borderColor: "#e5e7eb" }} />
             </div>
           </div>
-
-          <div>
-            <label className={LABEL}>Süre</label>
-            <div className="flex gap-2">
-              {[30, 45, 60, 90].map(d => (
-                <button key={d} onClick={() => setForm(f => ({ ...f, duration: d }))}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-                  style={{
-                    background: form.duration === d ? color : "white",
-                    borderColor: form.duration === d ? color : "#e5e7eb",
-                    color: form.duration === d ? "white" : "#6b7280",
-                  }}>{d} dk
-                </button>
-              ))}
+        ) : (
+          /* ── MOD 2: SABİT SAATLİ SEANS PAKETİ ───────────────────────────── */
+          <div className="p-6 space-y-4 overflow-y-auto max-h-[65vh]">
+            <div className="bg-teal-50 border border-teal-200 rounded-2xl p-3.5 text-xs text-teal-800 leading-relaxed">
+              💡 <strong>Haftalık Sabit Seans Paketi:</strong> Danışan için belirlediğiniz gün ve saatte (örn: <em>Her Pazartesi 15:00</em>) seçtiğiniz adette (örn: <em>10 Seans</em>) randevuyu takvime otomatik işler ve 10. haftada uzatma/mezuniyet bildirimi verir.
             </div>
-          </div>
 
-          <div>
-            <label className={LABEL}>Not (opsiyonel)</label>
-            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              rows={2} placeholder="Kısa not ekleyin..."
-              className={INPUT + " resize-none"} style={{ borderColor: "#e5e7eb" }} />
-          </div>
-        </div>
+            <div>
+              <label className={LABEL}>Danışan <span className="text-red-500">*</span></label>
+              <select
+                value={pkgForm.clientId}
+                onChange={e => setPkgForm(f => ({ ...f, clientId: e.target.value }))}
+                className={INPUT}
+                style={{ borderColor: "#e5e7eb" }}
+              >
+                <option value="">— Sabitlenecek Danışanı Seçin —</option>
+                {clients.filter(c => c.status === "aktif").map(c => (
+                  <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>
+                ))}
+              </select>
+            </div>
 
+            {/* Seans Adedi Preset Butonları */}
+            <div>
+              <label className={LABEL}>Toplam Seans Adedi</label>
+              <div className="flex flex-wrap gap-2">
+                {[5, 8, 10, 12, 16, 20].map(cnt => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => setPkgForm(f => ({ ...f, totalSessions: cnt }))}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all"
+                    style={{
+                      background: pkgForm.totalSessions === cnt ? "#0d9488" : "white",
+                      borderColor: pkgForm.totalSessions === cnt ? "#0d9488" : "#e5e7eb",
+                      color: pkgForm.totalSessions === cnt ? "white" : "#4b5563",
+                    }}
+                  >
+                    {cnt} Seans
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sabit Günler (Haftada 1, 2 veya 3) */}
+            <div>
+              <label className={LABEL}>Sabit Seans Günleri</label>
+              <div className="flex gap-1.5">
+                {DAYS_LIST.map(d => {
+                  const isSelected = pkgForm.selectedDays.includes(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => {
+                        setPkgForm(f => ({
+                          ...f,
+                          selectedDays: isSelected
+                            ? f.selectedDays.filter(id => id !== d.id)
+                            : [...f.selectedDays, d.id]
+                        }));
+                      }}
+                      className="flex-1 py-2 rounded-xl text-xs font-bold border transition-all"
+                      style={{
+                        background: isSelected ? "#0d9488" : "white",
+                        borderColor: isSelected ? "#0d9488" : "#e5e7eb",
+                        color: isSelected ? "white" : "#4b5563",
+                      }}
+                    >
+                      {d.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Saat, Süre ve Başlangıç */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className={LABEL}>Başlangıç</label>
+                <input
+                  type="date"
+                  value={pkgForm.startDate}
+                  onChange={e => setPkgForm(f => ({ ...f, startDate: e.target.value }))}
+                  className={INPUT}
+                  style={{ borderColor: "#e5e7eb" }}
+                />
+              </div>
+              <div>
+                <label className={LABEL}>Sabit Saat</label>
+                <input
+                  type="time"
+                  value={pkgForm.time}
+                  onChange={e => setPkgForm(f => ({ ...f, time: e.target.value }))}
+                  className={INPUT}
+                  style={{ borderColor: "#e5e7eb" }}
+                />
+              </div>
+              <div>
+                <label className={LABEL}>Süre</label>
+                <select
+                  value={pkgForm.duration}
+                  onChange={e => setPkgForm(f => ({ ...f, duration: Number(e.target.value) }))}
+                  className={INPUT}
+                  style={{ borderColor: "#e5e7eb" }}
+                >
+                  <option value={30}>30 dk</option>
+                  <option value={45}>45 dk</option>
+                  <option value={60}>60 dk</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Otomatik Oluşturulacak Seans Önizlemesi */}
+            {previewDates.length > 0 && (
+              <div className="bg-gray-50 rounded-2xl p-3 border border-gray-100">
+                <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center justify-between">
+                  <span>📅 Planlanan Seans Akışı ({pkgForm.totalSessions} Seans)</span>
+                  <span className="text-teal-600 font-semibold">{pkgForm.time} ({pkgForm.duration} dk)</span>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                  {previewDates.map(p => (
+                    <div key={p.index} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white border border-gray-100">
+                      <span className="font-bold text-teal-700">{p.index}. Seans</span>
+                      <span className="text-gray-700 font-medium">{p.dateStr}</span>
+                      <span className="text-gray-400">{p.dayName}</span>
+                    </div>
+                  ))}
+                  {pkgForm.totalSessions > 12 && (
+                    <div className="text-center text-[10px] text-gray-400 py-1">
+                      ... ve sonraki {pkgForm.totalSessions - 12} seans daha
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modal Alt Butonları */}
         <div className="px-6 py-4 border-t flex gap-3" style={{ borderColor: "#f0fdf9" }}>
           <button onClick={onClose}
             className="flex-1 py-2.5 rounded-xl border text-sm font-medium text-gray-600 hover:bg-gray-50"
             style={{ borderColor: "#e5e7eb" }}>İptal
           </button>
           <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}
-            onClick={handleSave} disabled={saving}
+            onClick={modalMode === "single" ? handleSaveSingle : handleSavePackage}
+            disabled={saving}
             className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-60"
-            style={{ background: `linear-gradient(135deg, ${color}, ${color}bb)` }}>
+            style={{ background: "linear-gradient(135deg, #0d9488, #134e4a)" }}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saving ? "Kaydediliyor..." : "Kaydet"}
+            {saving ? "İşleniyor..." : modalMode === "single" ? "Kaydet" : `Paketi Takvime İşle (${pkgForm.totalSessions} Seans)`}
           </motion.button>
         </div>
       </motion.div>
@@ -675,7 +949,9 @@ export default function TakvimPage() {
         {showModal && (
           <EventModal open={showModal}
             onClose={() => { setShowModal(false); setEditEvent(null); }}
-            onSave={handleSave} clients={clients}
+            onSave={handleSave}
+            onPackageCreated={loadEvents}
+            clients={clients}
             defaultDate={defaultDate} editEvent={editEvent} />
         )}
       </AnimatePresence>
