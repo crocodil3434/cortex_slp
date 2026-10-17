@@ -77,9 +77,16 @@ export function Showcase({ presentation = false }: { presentation?: boolean }) {
         <div className={s.heroFoot}><div><span className={s.eyebrow}>BİR VAKADAN KLİNİK DÜŞÜNMEYE</span><p>Bilgiyi deneyime.<br/>Deneyimi yeni bir bakışa.</p></div><button className={s.roundCta} onClick={() => go(3)} aria-label="Örnek vakayı keşfet"><ArrowUpRight size={34}/><span>DENEYİMİ<br/>KEŞFET</span></button><button className={s.scrollHint} onClick={() => go(1)}>HİKÂYEYE GİR <ArrowDown size={18}/></button></div>
         <div className={s.heroBottom}><span>THERACADEMY / GELİŞTİRME AŞAMASINDA</span><span>01 — 07</span><span>SAĞLIK BİLİMLERİ İÇİN</span></div>
       </section>}
-      {!presentation && <div className={s.ribbon} aria-hidden="true"><div>KEŞFET ↗ DENEYİMLE ↗ DÜŞÜN ↗ GELİŞ ↗ KEŞFET ↗ DENEYİMLE ↗ DÜŞÜN ↗ GELİŞ ↗</div></div>}
+      {!presentation && <div className={s.ribbon} aria-hidden="true"><div className={s.ribbonTrack}>{[0, 1].map(copy => <span className={s.ribbonGroup} key={copy}>{Array.from({ length: 4 }, (_, repeat) => <span key={repeat}>KEŞFET ↗ DENEYİMLE ↗ DÜŞÜN ↗ GELİŞ ↗</span>)}</span>)}</div></div>}
       {visible(1) && <section id="yaklasim" data-scene className={`${s.scene} ${s.approach}`}>
-        {tag(1)}<div className={s.split}><div><h2>EZBERİN<br/>BİTTİĞİ<br/><em>YERDE.</em></h2><p className={s.lead}>Bir insanı anlamak, bir bilgiyi hatırlamaktan fazlasını gerektirir.</p></div><div className={s.approachRight}><p>Öykü. Bağlam. Belirsizlik.<br/>Ve senin bir sonraki sorun.</p><div className={s.pathDrawing} aria-hidden="true"><svg viewBox="0 0 500 270"><path d="M30 140H130C210 140 160 40 240 40S280 230 370 230H470"/><path d="M130 140C220 140 170 215 250 215S310 60 390 60H470"/><circle cx="30" cy="140" r="9"/><circle cx="470" cy="230" r="9"/><circle cx="470" cy="60" r="9"/></svg><span>BİLGİ</span><span>KLİNİK KARAR</span></div><p className={s.smallCopy}>Theracademy, klinik düşünme pratiği için yapılandırılmış vaka deneyimleri geliştirmeyi hedefler.</p></div></div>
+        {tag(1)}<div className={s.split}><div><h2>EZBERİN<br/>BİTTİĞİ<br/><em>YERDE.</em></h2><p className={s.lead}>Bir insanı anlamak, bir bilgiyi hatırlamaktan fazlasını gerektirir.</p></div><div className={s.approachRight}><p>Öykü. Bağlam. Belirsizlik.<br/>Ve senin bir sonraki sorun.</p><div className={s.pathDrawing} aria-hidden="true"><svg viewBox="0 0 500 270">
+          <path className={s.connectionBase} d="M30 140H130"/>
+          <path className={s.connectionBase} d="M130 140C210 140 160 40 240 40S280 230 370 230H470"/>
+          <path className={`${s.connectionBase} ${s.connectionGreen}`} d="M130 140C220 140 170 215 250 215S310 60 390 60H470"/>
+          <path className={s.connectionPulse} pathLength="100" d="M30 140H130C210 140 160 40 240 40S280 230 370 230H470"/>
+          <path className={s.connectionPulse} pathLength="100" d="M30 140H130C220 140 170 215 250 215S310 60 390 60H470"/>
+          <circle cx="30" cy="140" r="9"/><circle cx="470" cy="230" r="9"/><circle cx="470" cy="60" r="9"/>
+        </svg><span>BİLGİ</span><span>KLİNİK KARAR</span></div><p className={s.smallCopy}>Theracademy, klinik düşünme pratiği için yapılandırılmış vaka deneyimleri geliştirmeyi hedefler.</p></div></div>
         <div className={s.principles}>{["Bağlamı gör.","Sorunu derinleştir.","Kararını gerekçelendir."].map((t,i) => <div key={t}><small>0{i+1}</small><span>{t}</span><ArrowUpRight/></div>)}</div>
       </section>}
       {visible(2) && <section id="biz" data-scene className={`${s.scene} ${s.about}`}>
