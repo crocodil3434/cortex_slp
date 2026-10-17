@@ -1,13 +1,7 @@
-import { Hero } from "@/components/sections/Hero";
-import { ClinicalServices } from "@/components/sections/ClinicalServices";
-import { ClinicalPhilosophy } from "@/components/sections/ClinicalPhilosophy";
-
-export default function Home() {
-  return (
-    <div className="flex flex-col min-h-screen bg-clinical-white">
-      <Hero />
-      <ClinicalServices />
-      <ClinicalPhilosophy />
-    </div>
-  );
-}
+import type { Metadata } from "next";
+import { Showcase } from "@/components/theracademy/Showcase";
+export const metadata: Metadata = {
+  title: "Theracademy — Klinik düşünmenin yeni alanı",
+  description: "Sağlık bilimleri eğitimi için klinik simülasyon. Bir vakadan klinik düşünmeye.",
+};
+export default function Home() { return <Showcase />; }
