@@ -14,8 +14,8 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "CORTEX SLP | Medikal Dil, Konuşma ve Yutma Patolojisi",
-  description: "Nörolojik rehabilitasyon ve vokal terapilerde kanıta dayalı, bütüncül ve evrensel klinik yaklaşım.",
+  title: "Theracademy | Klinik simülasyon teknolojileri",
+  description: "Sağlık bilimleri eğitimi için geliştirilen klinik simülasyon platformu.",
 };
 
 export default function RootLayout({
